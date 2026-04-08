@@ -2802,6 +2802,14 @@ class ProfileListPanel(tk.Frame):
         if all_items:
             self.tree.selection_set(all_items)
 
+    def _insert_profile_row(self, parent_iid, profile_idx, profile, row_idx):
+        """Insert a single profile row into the treeview."""
+        status, status_tag = self._profile_status(profile)
+        alt_tag = "row_even" if row_idx % 2 == 0 else "row_odd"
+        self.tree.insert(parent_iid, "end", iid=str(profile_idx),
+                         values=(profile.name, status, profile.origin or "\u2014"),
+                         tags=(alt_tag, status_tag))
+
     def _refresh_list(self):
         self.tree.delete(*self.tree.get_children())
         filter_text = self._filter_var.get().lower()
@@ -2827,11 +2835,7 @@ class ProfileListPanel(tk.Frame):
             # Flat list — no grouping
             row_idx = 0
             for i, profile in visible:
-                status, status_tag = self._profile_status(profile)
-                alt_tag = "row_even" if row_idx % 2 == 0 else "row_odd"
-                self.tree.insert("", "end", iid=str(i),
-                                 values=(profile.name, status, profile.origin or "\u2014"),
-                                 tags=(alt_tag, status_tag))
+                self._insert_profile_row("", i, profile, row_idx)
                 row_idx += 1
         else:
             # Grouped — collect into buckets preserving order
@@ -2855,11 +2859,7 @@ class ProfileListPanel(tk.Frame):
                                  values=(f"{gname}  ({count})", "", ""),
                                  tags=("group_header",))
                 for i, profile in items:
-                    status, status_tag = self._profile_status(profile)
-                    alt_tag = "row_even" if row_idx % 2 == 0 else "row_odd"
-                    self.tree.insert(gid, "end", iid=str(i),
-                                     values=(profile.name, status, profile.origin or "\u2014"),
-                                     tags=(alt_tag, status_tag))
+                    self._insert_profile_row(gid, i, profile, row_idx)
                     row_idx += 1
 
         # Auto-select the first profile item (skip group headers)
