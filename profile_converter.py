@@ -655,16 +655,16 @@ def _humanize_enum_value(raw_value: str) -> str:
     """Auto-humanize an unknown enum value for display.
     monotonicline → Monotonic Line, even_odd → Even Odd,
     rectilinear-grid → Rectilinear Grid, tree(auto) → Tree (Auto)."""
-    s = str(raw_value)
+    raw = str(raw_value)
     # Insert space before uppercase runs (camelCase splitting)
-    s = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', s)
+    raw = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', raw)
     # Insert space between lowercase-to-digit and digit-to-lowercase
-    s = re.sub(r'(?<=[a-z])(?=\d)', ' ', s)
-    s = re.sub(r'(?<=\d)(?=[a-z])', ' ', s)
+    raw = re.sub(r'(?<=[a-z])(?=\d)', ' ', raw)
+    raw = re.sub(r'(?<=\d)(?=[a-z])', ' ', raw)
     # Replace underscores and hyphens with spaces
-    s = s.replace('_', ' ').replace('-', ' ')
+    raw = raw.replace('_', ' ').replace('-', ' ')
     # Title-case each word, but preserve content in parentheses
-    parts = re.split(r'(\([^)]*\))', s)
+    parts = re.split(r'(\([^)]*\))', raw)
     result = []
     for part in parts:
         if part.startswith('('):
@@ -1418,9 +1418,9 @@ class SlicerDetector:
         user_dir = os.path.join(slicer_path, "user")
         if os.path.isdir(user_dir):
             for e in os.listdir(user_dir):
-                ep = os.path.join(user_dir, e)
-                if os.path.isdir(ep):
-                    return ep
+                entry_path = os.path.join(user_dir, e)
+                if os.path.isdir(entry_path):
+                    return entry_path
         return slicer_path
 
 
@@ -1455,10 +1455,10 @@ class _Tooltip:
             return
         x = self.widget.winfo_rootx() + 20
         y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
-        self._tip = tw = tk.Toplevel(self.widget)
-        tw.wm_overrideredirect(True)
-        tw.wm_geometry(f"+{x}+{y}")
-        lbl = tk.Label(tw, text=self.text, bg="#333333", fg="#ededed",
+        self._tip = tooltip_window = tk.Toplevel(self.widget)
+        tooltip_window.wm_overrideredirect(True)
+        tooltip_window.wm_geometry(f"+{x}+{y}")
+        lbl = tk.Label(tooltip_window, text=self.text, bg="#333333", fg="#ededed",
                        font=(UI_FONT, 11), padx=8, pady=4, relief="solid", bd=1,
                        borderwidth=1, highlightbackground=_TOOLTIP_BORDER_COLOR)
         lbl.pack()
@@ -1530,12 +1530,12 @@ class ExportDialog(tk.Toplevel):
         opts.pack(fill="x", padx=20, pady=8)
 
         self._flatten_var = tk.BooleanVar(value=False)
-        cb = tk.Checkbutton(opts, text="Flatten inherited parameters (no inheritance)",
+        checkbox = tk.Checkbutton(opts, text="Flatten inherited parameters (no inheritance)",
                             variable=self._flatten_var, bg=theme.bg, fg=theme.fg,
                             selectcolor=theme.bg, activebackground=theme.bg, activeforeground=theme.fg,
                             indicatoron=True, offrelief="flat",
                             font=(UI_FONT, 11))
-        cb.pack(anchor="w", padx=8, pady=4)
+        checkbox.pack(anchor="w", padx=8, pady=4)
         tk.Label(opts, text="When checked, all inherited values are written\n"
                             "explicitly into the exported file. The profile\n"
                             "becomes fully self-contained with no dependencies.",
@@ -1570,14 +1570,14 @@ class ExportDialog(tk.Toplevel):
             sep2.pack(fill="x", padx=20, pady=(8, 0))
 
         # Buttons
-        bf = tk.Frame(self, bg=theme.bg)
-        bf.pack(fill="x", padx=20, pady=(12, 16))
+        button_frame = tk.Frame(self, bg=theme.bg)
+        button_frame.pack(fill="x", padx=20, pady=(12, 16))
 
-        _make_btn(bf, "Export to File...",
+        _make_btn(button_frame, "Export to File...",
                   self._ok,
                   bg=theme.accent2, fg=theme.accent_fg,
                   font=(UI_FONT, 11, "bold"), padx=16, pady=5).pack(side="right", padx=(4, 0))
-        _make_btn(bf, "Cancel",
+        _make_btn(button_frame, "Cancel",
                   self._cancel,
                   bg=theme.bg3, fg=theme.fg3,
                   font=(UI_FONT, 11), padx=12, pady=5).pack(side="right")
@@ -1618,14 +1618,14 @@ class ConvertDialog(tk.Toplevel):
                  font=(UI_FONT, 14, "bold"), bg=theme.bg, fg=theme.fg).pack(pady=(16, 8), padx=16)
 
         self.mode = tk.StringVar(value="universal")
-        mf = tk.Frame(self, bg=theme.bg)
-        mf.pack(fill="x", padx=16, pady=8)
+        mode_frame = tk.Frame(self, bg=theme.bg)
+        mode_frame.pack(fill="x", padx=16, pady=8)
 
-        tk.Radiobutton(mf, text="Make universal (compatible with all printers)",
+        tk.Radiobutton(mode_frame, text="Make universal (compatible with all printers)",
                        variable=self.mode, value="universal", bg=theme.bg, fg=theme.fg,
                        selectcolor=theme.bg3, activebackground=theme.bg, activeforeground=theme.fg,
                        command=self._mode_changed).pack(anchor="w", padx=12, pady=6)
-        tk.Radiobutton(mf, text="Assign to specific printers:",
+        tk.Radiobutton(mode_frame, text="Assign to specific printers:",
                        variable=self.mode, value="retarget", bg=theme.bg, fg=theme.fg,
                        selectcolor=theme.bg3, activebackground=theme.bg, activeforeground=theme.fg,
                        command=self._mode_changed).pack(anchor="w", padx=12, pady=6)
@@ -1634,16 +1634,16 @@ class ConvertDialog(tk.Toplevel):
         self.pf = tk.Frame(self, bg=theme.bg)
         self.pf.pack(fill="both", expand=True, padx=32, pady=(0, 8))
 
-        lf = tk.Frame(self.pf, bg=theme.bg3, highlightbackground=theme.border, highlightthickness=1)
-        lf.pack(fill="both", expand=True)
-        canvas = tk.Canvas(lf, bg=theme.bg3, highlightthickness=0, width=380, height=200)
-        sb = tk.Scrollbar(lf, orient="vertical", command=canvas.yview)
+        list_frame = tk.Frame(self.pf, bg=theme.bg3, highlightbackground=theme.border, highlightthickness=1)
+        list_frame.pack(fill="both", expand=True)
+        canvas = tk.Canvas(list_frame, bg=theme.bg3, highlightthickness=0, width=380, height=200)
+        scrollbar = tk.Scrollbar(list_frame, orient="vertical", command=canvas.yview)
         self.cf = tk.Frame(canvas, bg=theme.bg3)
         self.cf.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.create_window((0, 0), window=self.cf, anchor="nw")
-        canvas.configure(yscrollcommand=sb.set)
+        canvas.configure(yscrollcommand=scrollbar.set)
         canvas.pack(side="left", fill="both", expand=True)
-        sb.pack(side="right", fill="y")
+        scrollbar.pack(side="right", fill="y")
 
         self.pvars = {}
         for brand, models in KNOWN_PRINTERS.items():
@@ -1665,12 +1665,12 @@ class ConvertDialog(tk.Toplevel):
         self.custom.pack(fill="x", pady=(0, 8))
         self._set_state("disabled")
 
-        bf = tk.Frame(self, bg=theme.bg)
-        bf.pack(fill="x", padx=16, pady=(8, 16))
-        cancel_btn = _make_btn(bf, "Cancel", self._cancel, bg=theme.btn_bg, fg=theme.btn_fg,
+        button_frame = tk.Frame(self, bg=theme.bg)
+        button_frame.pack(fill="x", padx=16, pady=(8, 16))
+        cancel_btn = _make_btn(button_frame, "Cancel", self._cancel, bg=theme.btn_bg, fg=theme.btn_fg,
                                padx=20, pady=6)
         cancel_btn.pack(side="right", padx=(8, 0))
-        convert_btn = _make_btn(bf, "Convert", self._convert, bg=theme.accent, fg=theme.accent_fg,
+        convert_btn = _make_btn(button_frame, "Convert", self._convert, bg=theme.accent, fg=theme.accent_fg,
                                 font=(UI_FONT, 11, "bold"), padx=20, pady=6)
         convert_btn.pack(side="right")
 
@@ -1721,16 +1721,16 @@ class CompareDialog(tk.Toplevel):
         theme = self.theme
 
         # ── Header: two profile name columns ──
-        hdr = tk.Frame(self, bg=theme.bg)
-        hdr.pack(fill="x", padx=16, pady=(10, 4))
+        header_frame = tk.Frame(self, bg=theme.bg)
+        header_frame.pack(fill="x", padx=16, pady=(10, 4))
         # Left name
-        tk.Label(hdr, text=pa.name, bg=theme.bg, fg=theme.accent,
+        tk.Label(header_frame, text=pa.name, bg=theme.bg, fg=theme.accent,
                  font=(UI_FONT, 13, "bold")).pack(side="left")
         # Centered "vs"
-        tk.Label(hdr, text="  vs  ", bg=theme.bg, fg=theme.fg2,
+        tk.Label(header_frame, text="  vs  ", bg=theme.bg, fg=theme.fg2,
                  font=(UI_FONT, 12)).pack(side="left")
         # Right name
-        tk.Label(hdr, text=pb.name, bg=theme.bg, fg=theme.warning,
+        tk.Label(header_frame, text=pb.name, bg=theme.bg, fg=theme.warning,
                  font=(UI_FONT, 13, "bold")).pack(side="left")
 
         # ── Find differences and group by section ──
@@ -1786,14 +1786,14 @@ class CompareDialog(tk.Toplevel):
         container.pack(fill="both", expand=True, padx=16, pady=(0, 10))
 
         canvas = tk.Canvas(container, bg=theme.bg2, highlightthickness=0)
-        sb = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
         body = tk.Frame(canvas, bg=theme.bg2)
         body.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        cw = canvas.create_window((0, 0), window=body, anchor="nw")
-        canvas.configure(yscrollcommand=sb.set)
+        canvas_window_id = canvas.create_window((0, 0), window=body, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
         canvas.pack(side="left", fill="both", expand=True)
-        sb.pack(side="right", fill="y")
-        canvas.bind("<Configure>", lambda e: canvas.itemconfig(cw, width=e.width))
+        scrollbar.pack(side="right", fill="y")
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(canvas_window_id, width=e.width))
 
         # Scroll helper — bind to all children
         def _scroll(e):
@@ -1979,20 +1979,20 @@ class ProfileDetailPanel(tk.Frame):
         self._inherited_keys = profile.inherited_keys if profile.inherited_keys else set()
 
         # ── Header (compact: 3 rows max) ──
-        hdr = tk.Frame(self, bg=theme.bg2)
-        self._header_frame = hdr
-        hdr.pack(fill="x", padx=10, pady=(6, 0))
+        header_frame = tk.Frame(self, bg=theme.bg2)
+        self._header_frame = header_frame
+        header_frame.pack(fill="x", padx=10, pady=(6, 0))
 
         # Row 1: profile name with type prefix (double-click to rename)
         ptype_upper = profile.profile_type.upper()
-        self._name_label = tk.Label(hdr, text=f"{ptype_upper}  \u2022  {profile.name}",
+        self._name_label = tk.Label(header_frame, text=f"{ptype_upper}  \u2022  {profile.name}",
                  bg=theme.bg2, fg=theme.fg, font=(UI_FONT, 17, "bold"), cursor="hand2")
         self._name_label.pack(anchor="w")
         self._name_label.bind("<Double-1>", lambda e: self._start_header_rename())
         _Tooltip(self._name_label, "Double-click to rename")
 
         # Row 2: status + inheritance + source — one line, plain text
-        row2 = tk.Frame(hdr, bg=theme.bg2)
+        row2 = tk.Frame(header_frame, bg=theme.bg2)
         row2.pack(fill="x", pady=(2, 0))
 
         # Status text (colored, no bg box)
@@ -2050,7 +2050,7 @@ class ProfileDetailPanel(tk.Frame):
         info_parts_unknown = set(display_keys) - known_layout - _IDENTITY_KEYS
         if info_parts_unknown:
             count_parts.append(f"{len(info_parts_unknown)} unrecognized")
-        tk.Label(hdr, text=" \u00b7 ".join(count_parts), bg=theme.bg2, fg=theme.fg2,
+        tk.Label(header_frame, text=" \u00b7 ".join(count_parts), bg=theme.bg2, fg=theme.fg2,
                  font=(UI_FONT, 12)).pack(anchor="w", pady=(1, 0))
 
         # ── Sub-tab bar ──
@@ -2196,12 +2196,12 @@ class ProfileDetailPanel(tk.Frame):
             return False
 
         # Section header with left accent bar
-        sh = tk.Frame(self._content_frame, bg=theme.param_bg)
-        sh.pack(fill="x", padx=10, pady=(10, 3))
-        accent_bar = tk.Frame(sh, bg=theme.warning if discovered else theme.accent, width=3)
+        section_header = tk.Frame(self._content_frame, bg=theme.param_bg)
+        section_header.pack(fill="x", padx=10, pady=(10, 3))
+        accent_bar = tk.Frame(section_header, bg=theme.warning if discovered else theme.accent, width=3)
         accent_bar.pack(side="left", fill="y", padx=(0, 8))
         fg = theme.warning if discovered else theme.btn_fg
-        tk.Label(sh, text=section_name, bg=theme.param_bg, fg=fg,
+        tk.Label(section_header, text=section_name, bg=theme.param_bg, fg=fg,
                  font=(UI_FONT, 15, "bold")).pack(side="left")
 
         for json_key, ui_label in visible:
@@ -2290,17 +2290,17 @@ class ProfileDetailPanel(tk.Frame):
             human_labels.append(current_label)
             extra_label_to_json[current_label] = raw_str
 
-        sv = tk.StringVar(value=current_label)
+        value_var = tk.StringVar(value=current_label)
         # Fit dropdown width to longest option text
         max_len = max((len(hl) for hl in human_labels), default=10)
         cb_width = max(max_len + 2, 12)
-        cb = ttk.Combobox(row, textvariable=sv, values=human_labels,
+        combobox = ttk.Combobox(row, textvariable=value_var, values=human_labels,
                           state="readonly", style="Param.TCombobox",
                           font=(UI_FONT, 13), width=cb_width)
-        cb.grid(row=0, column=1, sticky="w", padx=(4, 0))
+        combobox.grid(row=0, column=1, sticky="w", padx=(4, 0))
 
         def _on_enum_change(event=None):
-            selected_label = sv.get()
+            selected_label = value_var.get()
             # Use sentinel to correctly handle empty-string JSON values
             _sentinel = object()
             known_reverse = _ENUM_LABEL_TO_JSON.get(key, {})
@@ -2317,10 +2317,10 @@ class ProfileDetailPanel(tk.Frame):
                 self._undo_stack.append((key, original_value))
                 self.current_profile.data[key] = new_val
                 self.current_profile.modified = True
-                self._edit_vars[key] = (sv, new_val, "combo")
+                self._edit_vars[key] = (value_var, new_val, "combo")
 
-        cb.bind("<<ComboboxSelected>>", _on_enum_change)
-        self._edit_vars[key] = (sv, original_value, "combo")
+        combobox.bind("<<ComboboxSelected>>", _on_enum_change)
+        self._edit_vars[key] = (value_var, original_value, "combo")
 
 
     def _activate_edit(self, container, label_widget, key, original_value, fg_color):
@@ -2331,15 +2331,15 @@ class ProfileDetailPanel(tk.Frame):
         container.configure(highlightbackground=theme.accent)
 
         display = self._format_value(original_value, key=key)
-        sv = tk.StringVar(value=display)
-        entry = tk.Entry(container, textvariable=sv, bg=theme.edit_bg, fg=fg_color,
+        value_var = tk.StringVar(value=display)
+        entry = tk.Entry(container, textvariable=value_var, bg=theme.edit_bg, fg=fg_color,
                          font=(UI_FONT, 13), insertbackground=theme.fg,
                          highlightthickness=0, relief="flat")
         entry.pack(fill="x")
         entry.focus_set()
         entry.select_range(0, "end")
 
-        self._edit_vars[key] = (sv, original_value, "entry")
+        self._edit_vars[key] = (value_var, original_value, "entry")
 
         def finish_edit(event=None):
             self._commit_single(key)
@@ -2465,10 +2465,10 @@ class ProfileDetailPanel(tk.Frame):
             return "Yes" if value else "No"
         elif value is None:
             return "N/A"
-        s = str(value)
+        value_str = str(value)
         if key and key in ENUM_VALUES:
-            return _get_enum_human_label(key, s)
-        return s[:_VALUE_TRUNCATE_LONG] + "..." if len(s) > _VALUE_TRUNCATE_LONG else s
+            return _get_enum_human_label(key, value_str)
+        return value_str[:_VALUE_TRUNCATE_LONG] + "..." if len(value_str) > _VALUE_TRUNCATE_LONG else value_str
 
     def _start_header_rename(self):
         """Replace the profile name label with an editable Entry on double-click."""
@@ -2480,17 +2480,17 @@ class ProfileDetailPanel(tk.Frame):
 
         self._name_label.destroy()
         # Get the header frame (parent of the label)
-        hdr = self._header_frame
+        header_frame = self._header_frame
 
-        name_frame = tk.Frame(hdr, bg=theme.bg2)
+        name_frame = tk.Frame(header_frame, bg=theme.bg2)
         name_frame.pack(anchor="w", fill="x")
 
         prefix = tk.Label(name_frame, text=f"{ptype_upper}  \u2022  ",
                           bg=theme.bg2, fg=theme.fg, font=(UI_FONT, 17, "bold"))
         prefix.pack(side="left")
 
-        sv = tk.StringVar(value=profile.name)
-        entry = tk.Entry(name_frame, textvariable=sv, bg=theme.bg3, fg=theme.fg,
+        name_var = tk.StringVar(value=profile.name)
+        entry = tk.Entry(name_frame, textvariable=name_var, bg=theme.bg3, fg=theme.fg,
                          insertbackground=theme.fg, font=(UI_FONT, 17, "bold"),
                          highlightbackground=theme.accent, highlightthickness=1,
                          relief="flat")
@@ -2499,23 +2499,23 @@ class ProfileDetailPanel(tk.Frame):
         entry.select_range(0, "end")
 
         def _finish(event=None):
-            new_name = sv.get().strip()
+            new_name = name_var.get().strip()
             if new_name and new_name != profile.name:
                 profile.data["name"] = new_name
                 profile.modified = True
             # Rebuild: destroy the edit frame, re-create the label
             name_frame.destroy()
-            self._name_label = tk.Label(hdr, text=f"{ptype_upper}  \u2022  {profile.name}",
+            self._name_label = tk.Label(header_frame, text=f"{ptype_upper}  \u2022  {profile.name}",
                      bg=theme.bg2, fg=theme.fg, font=(UI_FONT, 17, "bold"), cursor="hand2")
             # Insert at top of header
-            self._name_label.pack(anchor="w", before=hdr.winfo_children()[0] if hdr.winfo_children() else None)
+            self._name_label.pack(anchor="w", before=header_frame.winfo_children()[0] if header_frame.winfo_children() else None)
             self._name_label.bind("<Double-1>", lambda e: self._start_header_rename())
 
         def _cancel(event=None):
             name_frame.destroy()
-            self._name_label = tk.Label(hdr, text=f"{ptype_upper}  \u2022  {profile.name}",
+            self._name_label = tk.Label(header_frame, text=f"{ptype_upper}  \u2022  {profile.name}",
                      bg=theme.bg2, fg=theme.fg, font=(UI_FONT, 17, "bold"), cursor="hand2")
-            self._name_label.pack(anchor="w", before=hdr.winfo_children()[0] if hdr.winfo_children() else None)
+            self._name_label.pack(anchor="w", before=header_frame.winfo_children()[0] if header_frame.winfo_children() else None)
             self._name_label.bind("<Double-1>", lambda e: self._start_header_rename())
 
         entry.bind("<Return>", _finish)
@@ -2550,12 +2550,12 @@ class ProfileListPanel(tk.Frame):
         paned.add(left, minsize=320, width=480)
 
         # ── Filter row ──
-        ff = tk.Frame(left, bg=theme.bg3, highlightbackground=theme.border, highlightthickness=1)
-        ff.pack(fill="x", padx=6, pady=(0, 4))
-        tk.Label(ff, text="\u2315", bg=theme.bg3, fg=theme.fg3, font=(UI_FONT, 14),
+        filter_frame = tk.Frame(left, bg=theme.bg3, highlightbackground=theme.border, highlightthickness=1)
+        filter_frame.pack(fill="x", padx=6, pady=(0, 4))
+        tk.Label(filter_frame, text="\u2315", bg=theme.bg3, fg=theme.fg3, font=(UI_FONT, 14),
                  padx=6).pack(side="left")
         self._filter_var = tk.StringVar()
-        self._filter = tk.Entry(ff, textvariable=self._filter_var, bg=theme.bg3, fg=theme.fg,
+        self._filter = tk.Entry(filter_frame, textvariable=self._filter_var, bg=theme.bg3, fg=theme.fg,
                                 insertbackground=theme.fg, highlightthickness=0,
                                 font=(UI_FONT, 13), relief="flat", bd=0)
         self._filter.pack(side="left", fill="x", expand=True, ipady=4)
@@ -2577,11 +2577,11 @@ class ProfileListPanel(tk.Frame):
         self._group_var = tk.StringVar(value=self._group_labels[0])
         self._group_by = "none"
 
-        gf = tk.Frame(left, bg=theme.bg2)
-        gf.pack(fill="x", padx=6, pady=(0, 4))
-        tk.Label(gf, text="Group:", bg=theme.bg2, fg=theme.fg3,
+        group_frame = tk.Frame(left, bg=theme.bg2)
+        group_frame.pack(fill="x", padx=6, pady=(0, 4))
+        tk.Label(group_frame, text="Group:", bg=theme.bg2, fg=theme.fg3,
                  font=(UI_FONT, 13)).pack(side="left", padx=(2, 6))
-        group_cb = ttk.Combobox(gf, textvariable=self._group_var,
+        group_cb = ttk.Combobox(group_frame, textvariable=self._group_var,
                                 values=self._group_labels,
                                 state="readonly", style="Param.TCombobox",
                                 font=(UI_FONT, 13), width=16)
@@ -2589,10 +2589,10 @@ class ProfileListPanel(tk.Frame):
         group_cb.bind("<<ComboboxSelected>>", self._on_group_change)
 
         # ── Treeview (must exist before trace) ──
-        tf = tk.Frame(left, bg=theme.bg2)
-        tf.pack(fill="both", expand=True, padx=6, pady=(0, 4))
+        tree_frame = tk.Frame(left, bg=theme.bg2)
+        tree_frame.pack(fill="both", expand=True, padx=6, pady=(0, 4))
 
-        self.tree = ttk.Treeview(tf, columns=("name", "status", "origin"),
+        self.tree = ttk.Treeview(tree_frame, columns=("name", "status", "origin"),
                                   show="tree headings", selectmode="extended")
         self.tree.heading("#0", text="")
         self.tree.column("#0", width=24, minwidth=24, stretch=False)
@@ -2612,10 +2612,10 @@ class ProfileListPanel(tk.Frame):
                                  foreground=theme.btn_fg, font=(UI_FONT, 11, "bold"))
         self._collapsed_groups = set()  # Track which groups are collapsed
 
-        ts = ttk.Scrollbar(tf, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=ts.set)
+        tree_scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=tree_scrollbar.set)
         self.tree.pack(side="left", fill="both", expand=True)
-        ts.pack(side="right", fill="y")
+        tree_scrollbar.pack(side="right", fill="y")
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
         self.tree.bind("<Double-1>", self._on_double_click_rename)
 
@@ -2758,8 +2758,8 @@ class ProfileListPanel(tk.Frame):
             return
 
         # Build confirmation message
-        n = len(paths)
-        if n == 1:
+        count = len(paths)
+        if count == 1:
             name, fpath = paths[0]
             msg = (f"Permanently delete this file?\n\n"
                    f"  {os.path.basename(fpath)}\n\n"
@@ -2767,9 +2767,9 @@ class ProfileListPanel(tk.Frame):
                    f"This cannot be undone.")
         else:
             file_list = "\n".join(f"  \u2022 {os.path.basename(fp)}" for _, fp in paths[:8])
-            if n > 8:
-                file_list += f"\n  ... and {n - 8} more"
-            msg = (f"Permanently delete {n} files?\n\n"
+            if count > 8:
+                file_list += f"\n  ... and {count - 8} more"
+            msg = (f"Permanently delete {count} files?\n\n"
                    f"{file_list}\n\n"
                    f"This cannot be undone.")
 
@@ -2808,14 +2808,14 @@ class ProfileListPanel(tk.Frame):
 
     def _refresh_list(self):
         self.tree.delete(*self.tree.get_children())
-        ft = self._filter_var.get().lower()
-        if ft == "filter...":
-            ft = ""
+        filter_text = self._filter_var.get().lower()
+        if filter_text == "filter...":
+            filter_text = ""
 
         # Build filtered list with original indices
         visible = []
         for i, p in enumerate(self.profiles):
-            if ft and ft not in f"{p.name} {p.origin} {p.source_label}".lower():
+            if filter_text and filter_text not in f"{p.name} {p.origin} {p.source_label}".lower():
                 continue
             visible.append((i, p))
 
@@ -2942,8 +2942,8 @@ class ProfileListPanel(tk.Frame):
                        activebackground=theme.accent2, activeforeground=theme.accent_fg,
                        font=(UI_FONT, 12))
 
-        n = len(sel)
-        menu.add_command(label=f"Export {n} profile{'s' if n > 1 else ''}...",
+        count = len(sel)
+        menu.add_command(label=f"Export {count} profile{'s' if count > 1 else ''}...",
                          command=self.app._on_export)
 
         # Install to Slicer submenu
@@ -2963,7 +2963,7 @@ class ProfileListPanel(tk.Frame):
         profile_sel = [s for s in sel if not str(s).startswith("_grp_")]
         if len(profile_sel) == 1:
             menu.add_command(label="Rename", command=self._rename_selected)
-        if n == 2:
+        if count == 2:
             menu.add_command(label="Compare", command=self.app._on_compare)
         menu.add_command(label="Duplicate", command=self.app._on_create_from_profile)
         menu.add_command(label="Show Folder", command=self.app._on_show_folder)
@@ -3007,13 +3007,13 @@ class ProfileListPanel(tk.Frame):
                 self._tree_tip.destroy()
             x = self.tree.winfo_rootx() + event.x + 16
             y = self.tree.winfo_rooty() + event.y + 20
-            tw = tk.Toplevel(self.tree)
-            tw.wm_overrideredirect(True)
-            tw.wm_geometry(f"+{x}+{y}")
-            tk.Label(tw, text=f"{tip_text}\n(double-click to rename)",
+            tooltip_window = tk.Toplevel(self.tree)
+            tooltip_window.wm_overrideredirect(True)
+            tooltip_window.wm_geometry(f"+{x}+{y}")
+            tk.Label(tooltip_window, text=f"{tip_text}\n(double-click to rename)",
                      bg="#333333", fg="#ededed", font=(UI_FONT, 11),
                      padx=8, pady=4, relief="solid", bd=1, justify="left").pack()
-            self._tree_tip = tw
+            self._tree_tip = tooltip_window
         self._tree_tip_after = self.tree.after(_TREE_TOOLTIP_DELAY_MS, _show)
 
     def _on_tree_leave(self, event):
@@ -3047,8 +3047,8 @@ class ProfileListPanel(tk.Frame):
             return
         x, y, w, h = bbox
 
-        sv = tk.StringVar(value=p.name)
-        entry = tk.Entry(self.tree, textvariable=sv, bg=theme.bg3, fg=theme.fg,
+        name_var = tk.StringVar(value=p.name)
+        entry = tk.Entry(self.tree, textvariable=name_var, bg=theme.bg3, fg=theme.fg,
                          insertbackground=theme.fg, font=(UI_FONT, 12),
                          highlightbackground=theme.accent, highlightthickness=1,
                          relief="flat")
@@ -3057,7 +3057,7 @@ class ProfileListPanel(tk.Frame):
         entry.select_range(0, "end")
 
         def _finish(event=None):
-            new_name = sv.get().strip()
+            new_name = name_var.get().strip()
             entry.destroy()
             if new_name and new_name != p.name:
                 p.data["name"] = new_name
@@ -3183,15 +3183,15 @@ class App(tk.Tk):
 
         # ── Status bar (pack first so it stays at bottom) ──
         self.status_var = tk.StringVar()
-        sf = tk.Frame(self, bg=theme.bg)
-        sf.pack(fill="x", side="bottom")
+        status_frame = tk.Frame(self, bg=theme.bg)
+        status_frame.pack(fill="x", side="bottom")
         self._count_var = tk.StringVar()
-        tk.Label(sf, textvariable=self._count_var, anchor="w", bg=theme.bg, fg=theme.fg2,
+        tk.Label(status_frame, textvariable=self._count_var, anchor="w", bg=theme.bg, fg=theme.fg2,
                  font=(UI_FONT, 12), padx=12, pady=4).pack(side="left")
-        tk.Label(sf, textvariable=self.status_var, anchor="w", bg=theme.bg, fg=theme.fg3,
+        tk.Label(status_frame, textvariable=self.status_var, anchor="w", bg=theme.bg, fg=theme.fg3,
                  font=(UI_FONT, 12), padx=6, pady=4).pack(side="left", fill="x", expand=True)
         if self.detected_slicers:
-            tk.Label(sf, text=f"Detected: {', '.join(self.detected_slicers.keys())}",
+            tk.Label(status_frame, text=f"Detected: {', '.join(self.detected_slicers.keys())}",
                      bg=theme.bg, fg=theme.fg3, font=(UI_FONT, 12), padx=12).pack(side="right")
 
         # ── Toolbar row (above notebook) ──
@@ -3463,18 +3463,18 @@ class App(tk.Tk):
             return
 
         export_base = SlicerDetector.get_export_dir(slicer_path)
-        n = len(selected)
-        profiles_word = "profile" if n == 1 else "profiles"
+        count = len(selected)
+        profiles_word = "profile" if count == 1 else "profiles"
 
         # Build a descriptive summary for the confirmation
         names = [p.name for p in selected[:3]]
         summary = ", ".join(names)
-        if n > 3:
-            summary += f", and {n - 3} more"
+        if count > 3:
+            summary += f", and {count - 3} more"
 
         if not messagebox.askyesno(
                 f"Install to {slicer_name}",
-                f"Install {n} {profiles_word} to {slicer_name}?\n\n"
+                f"Install {count} {profiles_word} to {slicer_name}?\n\n"
                 f"{summary}\n\n"
                 f"Destination: {export_base}\n\n"
                 f"Profiles will be organized into subfolders by type\n"
@@ -3483,7 +3483,7 @@ class App(tk.Tk):
             return
 
         self._do_export(selected, export_base, organize=True, quiet=True)
-        msg = (f"Installed {n} {profiles_word} to {slicer_name}. "
+        msg = (f"Installed {count} {profiles_word} to {slicer_name}. "
                f"Restart {slicer_name} to see them.")
         self._update_status(msg)
         messagebox.showinfo(f"Installed to {slicer_name}", msg)
@@ -3492,15 +3492,15 @@ class App(tk.Tk):
         exported, errors = 0, []
         for p in profiles:
             try:
-                d = (os.path.join(out_dir, p.profile_type)
+                dest_dir = (os.path.join(out_dir, p.profile_type)
                      if organize and p.profile_type != "unknown" else out_dir)
-                os.makedirs(d, exist_ok=True)
-                fp = os.path.join(d, p.suggested_filename())
-                c = 1
+                os.makedirs(dest_dir, exist_ok=True)
+                fp = os.path.join(dest_dir, p.suggested_filename())
+                counter = 1
                 base, ext = os.path.splitext(fp)
                 while os.path.exists(fp):
-                    fp = f"{base}_{c}{ext}"
-                    c += 1
+                    fp = f"{base}_{counter}{ext}"
+                    counter += 1
                 with open(fp, "w", encoding="utf-8") as f:
                     f.write(p.to_json(flatten=flatten))
                 exported += 1
