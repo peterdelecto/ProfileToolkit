@@ -704,9 +704,6 @@ KNOWN_PRINTERS = {
 }
 NOZZLE_SIZES = ["0.2", "0.4", "0.6", "0.8", "1.0"]
 
-# Fields that gate printer compatibility
-COMPAT_FIELDS = ["compatible_printers", "compatible_printers_condition", "printer_settings_id"]
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Preset Index — resolves inheritance chains
