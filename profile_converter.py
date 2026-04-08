@@ -2814,10 +2814,10 @@ class ProfileListPanel(tk.Frame):
 
         # Build filtered list with original indices
         visible = []
-        for i, p in enumerate(self.profiles):
-            if filter_text and filter_text not in f"{p.name} {p.origin} {p.source_label}".lower():
+        for i, profile in enumerate(self.profiles):
+            if filter_text and filter_text not in f"{profile.name} {profile.origin} {profile.source_label}".lower():
                 continue
-            visible.append((i, p))
+            visible.append((i, profile))
 
         group_by = self._group_by
 
@@ -2830,23 +2830,23 @@ class ProfileListPanel(tk.Frame):
         if group_by == "none":
             # Flat list — no grouping
             row_idx = 0
-            for i, p in visible:
-                status, status_tag = self._profile_status(p)
+            for i, profile in visible:
+                status, status_tag = self._profile_status(profile)
                 alt_tag = "row_even" if row_idx % 2 == 0 else "row_odd"
                 self.tree.insert("", "end", iid=str(i),
-                                 values=(p.name, status, p.origin or "\u2014"),
+                                 values=(profile.name, status, profile.origin or "\u2014"),
                                  tags=(alt_tag, status_tag))
                 row_idx += 1
         else:
             # Grouped — collect into buckets preserving order
             groups = {}
             group_order = []
-            for i, p in visible:
-                key = p.group_key(group_by)
+            for i, profile in visible:
+                key = profile.group_key(group_by)
                 if key not in groups:
                     groups[key] = []
                     group_order.append(key)
-                groups[key].append((i, p))
+                groups[key].append((i, profile))
 
             row_idx = 0
             for gname in group_order:
@@ -2858,11 +2858,11 @@ class ProfileListPanel(tk.Frame):
                                  text="",
                                  values=(f"{gname}  ({count})", "", ""),
                                  tags=("group_header",))
-                for i, p in items:
-                    status, status_tag = self._profile_status(p)
+                for i, profile in items:
+                    status, status_tag = self._profile_status(profile)
                     alt_tag = "row_even" if row_idx % 2 == 0 else "row_odd"
                     self.tree.insert(gid, "end", iid=str(i),
-                                     values=(p.name, status, p.origin or "\u2014"),
+                                     values=(profile.name, status, profile.origin or "\u2014"),
                                      tags=(alt_tag, status_tag))
                     row_idx += 1
 
@@ -3000,8 +3000,8 @@ class ProfileListPanel(tk.Frame):
         idx = int(iid)
         if idx >= len(self.profiles):
             return
-        p = self.profiles[idx]
-        tip_text = p.name
+        profile = self.profiles[idx]
+        tip_text = profile.name
         def _show():
             if self._tree_tip:
                 self._tree_tip.destroy()
@@ -3036,7 +3036,7 @@ class ProfileListPanel(tk.Frame):
     def _start_inline_rename(self, iid, idx):
         """Show an inline Entry widget over the profile name in the treeview."""
         theme = self.theme
-        p = self.profiles[idx]
+        profile = self.profiles[idx]
 
         # Get the bounding box of the "name" column for this item
         try:
@@ -3047,7 +3047,7 @@ class ProfileListPanel(tk.Frame):
             return
         x, y, w, h = bbox
 
-        name_var = tk.StringVar(value=p.name)
+        name_var = tk.StringVar(value=profile.name)
         entry = tk.Entry(self.tree, textvariable=name_var, bg=theme.bg3, fg=theme.fg,
                          insertbackground=theme.fg, font=(UI_FONT, 12),
                          highlightbackground=theme.accent, highlightthickness=1,
@@ -3059,9 +3059,9 @@ class ProfileListPanel(tk.Frame):
         def _finish(event=None):
             new_name = name_var.get().strip()
             entry.destroy()
-            if new_name and new_name != p.name:
-                p.data["name"] = new_name
-                p.modified = True
+            if new_name and new_name != profile.name:
+                profile.data["name"] = new_name
+                profile.modified = True
                 self._refresh_list()
                 # Re-select and show updated profile
                 try:
@@ -3422,16 +3422,16 @@ class App(tk.Tk):
 
         if len(selected) == 1:
             # Single profile: save-as dialog with filename choice
-            p = selected[0]
+            profile = selected[0]
             fp = filedialog.asksaveasfilename(
                 title="Export Profile",
-                initialfile=p.suggested_filename(),
+                initialfile=profile.suggested_filename(),
                 defaultextension=".json",
                 filetypes=[("JSON profile", "*.json"), ("All", "*.*")])
             if fp:
                 try:
                     with open(fp, "w", encoding="utf-8") as f:
-                        f.write(p.to_json(flatten=flatten))
+                        f.write(profile.to_json(flatten=flatten))
                     mode_note = " (flattened)" if flatten else ""
                     self._update_status(f"Exported{mode_note}: {os.path.basename(fp)}")
                 except Exception as e:
@@ -3608,8 +3608,8 @@ class App(tk.Tk):
         if not selected:
             messagebox.showinfo("No Selection", "Select a profile to show its folder.")
             return
-        p = selected[0]
-        folder = os.path.dirname(p.source_path)
+        profile = selected[0]
+        folder = os.path.dirname(profile.source_path)
         if os.path.isdir(folder):
             if platform.system() == "Darwin":
                 subprocess.Popen(["open", folder])
