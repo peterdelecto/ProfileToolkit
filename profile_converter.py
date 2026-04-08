@@ -646,6 +646,7 @@ for _ekey, _evals in ENUM_VALUES.items():
 _ENUM_JSON_TO_LABEL = {}
 for _ekey, _evals in ENUM_VALUES.items():
     _ENUM_JSON_TO_LABEL[_ekey] = {jval: label for jval, label in _evals}
+del _ekey, _evals
 
 
 def _humanize_enum_value(raw_value: str) -> str:
@@ -703,6 +704,17 @@ KNOWN_PRINTERS = {
     "Voron": ["Voron 0.2", "Voron 2.4", "Voron Trident"],
 }
 NOZZLE_SIZES = ["0.2", "0.4", "0.6", "0.8", "1.0"]
+
+_KNOWN_VENDORS = [
+    "Bambu", "Bambu Lab", "BBL", "eSUN", "Extrudr", "Polymaker",
+    "PolyTerra", "PolyLite", "Prusament", "Prusa", "Hatchbox",
+    "Overture", "Sunlu", "Inland", "MatterHackers", "ColorFabb",
+    "NinjaTek", "3DXTech", "Atomic", "Protopasta", "Fiberlogy",
+    "Fillamentum", "FormFutura", "Verbatim", "AzureFilm",
+    "Das Filament", "add:north", "Spectrum", "Generic",
+]
+_FILAMENT_TYPES = {"PLA", "ABS", "PETG", "TPU", "ASA", "HIPS", "PVA",
+                   "PC", "PA", "PP", "PET", "PCTG", "POM", "PVDF"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1011,14 +1023,6 @@ class Profile:
         base = name.split("@")[0].strip() if "@" in name else name
 
         # Known vendor prefixes (check longest first)
-        _KNOWN_VENDORS = [
-            "Bambu", "Bambu Lab", "BBL", "eSUN", "Extrudr", "Polymaker",
-            "PolyTerra", "PolyLite", "Prusament", "Prusa", "Hatchbox",
-            "Overture", "Sunlu", "Inland", "MatterHackers", "ColorFabb",
-            "NinjaTek", "3DXTech", "Atomic", "Protopasta", "Fiberlogy",
-            "Fillamentum", "FormFutura", "Verbatim", "AzureFilm",
-            "Das Filament", "add:north", "Spectrum", "Generic",
-        ]
         base_lower = base.lower()
         for v in sorted(_KNOWN_VENDORS, key=len, reverse=True):
             if base_lower.startswith(v.lower()):
@@ -1035,8 +1039,6 @@ class Profile:
         if base.strip():
             first_word = base.split()[0]
             # Only use if it looks like a brand (starts uppercase, not a filament type)
-            _FILAMENT_TYPES = {"PLA", "ABS", "PETG", "TPU", "ASA", "HIPS", "PVA",
-                               "PC", "PA", "PP", "PET", "PCTG", "POM", "PVDF"}
             if first_word.upper() not in _FILAMENT_TYPES and len(first_word) > 1:
                 return first_word
         return "Other"
