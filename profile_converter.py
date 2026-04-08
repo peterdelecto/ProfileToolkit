@@ -21,7 +21,6 @@ import subprocess
 from pathlib import Path
 from copy import deepcopy
 from datetime import datetime
-from collections import OrderedDict
 
 
 APP_NAME = "Print Profile Converter"
@@ -36,18 +35,31 @@ elif _SYS == "Windows":
 else:
     UI_FONT = "DejaVu Sans"     # Widely available on Linux
 
+# --- UI Geometry Constants ---
+_WIN_WIDTH = 1300
+_WIN_HEIGHT = 780
+_DLG_COMPARE_WIDTH = 960
+_DLG_COMPARE_HEIGHT = 650
+_DLG_COMPARE_MIN_WIDTH = 750
+_DLG_COMPARE_MIN_HEIGHT = 450
+_TREE_ROW_HEIGHT = 26
+_TREE_TOOLTIP_DELAY_MS = 600
+_VALUE_TRUNCATE_SHORT = 40   # CompareDialog._fmt
+_VALUE_TRUNCATE_LONG = 80    # ProfileDetailPanel._format_value
+_LABEL_COL_WIDTH = 220       # ProfileDetailPanel two-column grid
+
 
 # --- BambuStudio UI Layout Definitions ---
 # Each entry: (json_key, ui_label)
 # Ordering matches BambuStudio's UI exactly (from screenshots + source code).
 
-PROCESS_LAYOUT = OrderedDict([
-    ("Quality", OrderedDict([
-        ("Layer height", [
+PROCESS_LAYOUT = {
+    "Quality": {
+        "Layer height": [
             ("layer_height", "Layer height"),
             ("initial_layer_print_height", "Initial layer height"),
-        ]),
-        ("Line width", [
+        ],
+        "Line width": [
             ("line_width", "Default"),
             ("initial_layer_line_width", "Initial layer"),
             ("outer_wall_line_width", "Outer wall"),
@@ -56,8 +68,8 @@ PROCESS_LAYOUT = OrderedDict([
             ("sparse_infill_line_width", "Sparse infill"),
             ("internal_solid_infill_line_width", "Internal solid infill"),
             ("support_line_width", "Support"),
-        ]),
-        ("Seam", [
+        ],
+        "Seam": [
             ("seam_position", "Seam position"),
             ("staggered_inner_seams", "Staggered inner seams"),
             ("seam_slope_conditional", "Seam placement away from overhangs(experimental)"),
@@ -70,18 +82,18 @@ PROCESS_LAYOUT = OrderedDict([
             ("override_filament_scarf_seam", "Override filament scarf seam setting"),
             ("wipe_speed", "Wipe speed"),
             ("role_based_wipe_speed", "Role-based wipe speed"),
-        ]),
-        ("Precision", [
+        ],
+        "Precision": [
             ("slice_closing_radius", "Slice gap closing radius"),
             ("resolution", "Resolution"),
             ("enable_arc_fitting", "Arc fitting"),
             ("xy_hole_compensation", "X-Y hole compensation"),
             ("xy_contour_compensation", "X-Y contour compensation"),
-        ]),
-        ("Wall generator", [
+        ],
+        "Wall generator": [
             ("wall_generator", "Wall generator"),
-        ]),
-        ("Advanced", [
+        ],
+        "Advanced": [
             ("wall_sequence", "Order of walls"),
             ("is_infill_first", "Print infill first"),
             ("bridge_flow", "Bridge flow"),
@@ -96,15 +108,15 @@ PROCESS_LAYOUT = OrderedDict([
             ("smooth_coefficient", "Smooth coefficient"),
             ("reduce_crossing_wall", "Avoid crossing wall"),
             ("smoothing_wall_speed_along_z", "Smoothing wall speed along Z(experimental)"),
-        ]),
-    ])),
-    ("Strength", OrderedDict([
-        ("Walls", [
+        ],
+    },
+    "Strength": {
+        "Walls": [
             ("wall_loops", "Wall loops"),
             ("embed_wall_infill", "Embedding the wall into the infill"),
             ("detect_thin_wall", "Detect thin wall"),
-        ]),
-        ("Top/bottom shells", [
+        ],
+        "Top/bottom shells": [
             ("interface_shells", "Interface shells"),
             ("top_surface_pattern", "Top surface pattern"),
             ("top_surface_density", "Top surface density"),
@@ -117,16 +129,16 @@ PROCESS_LAYOUT = OrderedDict([
             ("bottom_shell_thickness", "Bottom shell thickness"),
             ("bottom_paint_penetration_layers", "Bottom paint penetration layers"),
             ("internal_solid_infill_pattern", "Internal solid infill pattern"),
-        ]),
-        ("Sparse infill", [
+        ],
+        "Sparse infill": [
             ("sparse_infill_density", "Sparse infill density"),
             ("fill_multiline", "Fill multiline"),
             ("sparse_infill_pattern", "Sparse infill pattern"),
             ("infill_anchor", "Length of sparse infill anchor"),
             ("infill_anchor_max", "Maximum length of sparse infill anchor"),
             ("filter_out_gap_fill", "Filter out tiny gaps"),
-        ]),
-        ("Advanced", [
+        ],
+        "Advanced": [
             ("infill_wall_overlap", "Infill/Wall overlap"),
             ("infill_direction", "Infill direction"),
             ("bridge_angle", "Bridge direction"),
@@ -135,14 +147,14 @@ PROCESS_LAYOUT = OrderedDict([
             ("detect_narrow_internal_solid_infill", "Detect narrow internal solid infill"),
             ("ensure_vertical_shell_thickness", "Ensure vertical shell thickness"),
             ("detect_floating_vertical_shell", "Detect floating vertical shells"),
-        ]),
-    ])),
-    ("Speed", OrderedDict([
-        ("Initial layer speed", [
+        ],
+    },
+    "Speed": {
+        "Initial layer speed": [
             ("initial_layer_speed", "Initial layer"),
             ("initial_layer_infill_speed", "Initial layer infill"),
-        ]),
-        ("Other layers speed", [
+        ],
+        "Other layers speed": [
             ("outer_wall_speed", "Outer wall"),
             ("inner_wall_speed", "Inner wall"),
             ("small_perimeter_speed", "Small perimeters"),
@@ -162,11 +174,11 @@ PROCESS_LAYOUT = OrderedDict([
             ("gap_infill_speed", "Gap infill"),
             ("support_speed", "Support"),
             ("support_interface_speed", "Support interface"),
-        ]),
-        ("Travel speed", [
+        ],
+        "Travel speed": [
             ("travel_speed", "Travel"),
-        ]),
-        ("Acceleration", [
+        ],
+        "Acceleration": [
             ("default_acceleration", "Normal printing"),
             ("travel_acceleration", "Travel"),
             ("travel_short_distance_acceleration", "Short travel"),
@@ -178,8 +190,8 @@ PROCESS_LAYOUT = OrderedDict([
             ("sparse_infill_acceleration", "Sparse infill"),
             ("internal_solid_infill_acceleration", "Internal solid infill"),
             ("bridge_acceleration", "Bridge"),
-        ]),
-        ("Jerk", [
+        ],
+        "Jerk": [
             ("default_jerk", "Normal printing"),
             ("outer_wall_jerk", "Outer wall"),
             ("inner_wall_jerk", "Inner wall"),
@@ -187,28 +199,28 @@ PROCESS_LAYOUT = OrderedDict([
             ("infill_jerk", "Infill"),
             ("initial_layer_jerk", "Initial layer"),
             ("travel_jerk", "Travel"),
-        ]),
-    ])),
-    ("Support", OrderedDict([
-        ("Support", [
+        ],
+    },
+    "Support": {
+        "Support": [
             ("enable_support", "Enable support"),
             ("support_type", "Type"),
             ("support_style", "Style"),
             ("support_threshold_angle", "Threshold angle"),
             ("support_on_build_plate_only", "On build plate only"),
             ("support_remove_small_overhang", "Remove small overhangs"),
-        ]),
-        ("Raft", [
+        ],
+        "Raft": [
             ("raft_layers", "Raft layers"),
-        ]),
-        ("Filament for Supports", [
+        ],
+        "Filament for Supports": [
             ("support_filament", "Support/raft base"),
             ("support_interface_filament", "Support/raft interface"),
-        ]),
-        ("Support ironing", [
+        ],
+        "Support ironing": [
             ("support_interface_ironing", "Enable ironing support interface"),
-        ]),
-        ("Advanced", [
+        ],
+        "Advanced": [
             ("support_base_pattern_density", "Initial layer density"),
             ("support_expansion", "Initial layer expansion"),
             ("support_wall_loops", "Support wall loops"),
@@ -228,18 +240,18 @@ PROCESS_LAYOUT = OrderedDict([
             ("support_object_first_layer_gap", "Support/object first layer gap"),
             ("bridge_no_support", "Don't support bridges"),
             ("independent_support_layer_height", "Independent support layer height"),
-        ]),
-    ])),
-    ("Others", OrderedDict([
-        ("Bed adhesion", [
+        ],
+    },
+    "Others": {
+        "Bed adhesion": [
             ("skirt_loops", "Skirt loops"),
             ("skirt_height", "Skirt height"),
             ("skirt_distance", "Skirt distance"),
             ("brim_type", "Brim type"),
             ("brim_width", "Brim width"),
             ("brim_object_gap", "Brim-object gap"),
-        ]),
-        ("Prime tower", [
+        ],
+        "Prime tower": [
             ("enable_prime_tower", "Enable"),
             ("prime_tower_skip_points", "Skip points"),
             ("prime_tower_internal_ribs", "Internal ribs"),
@@ -251,12 +263,12 @@ PROCESS_LAYOUT = OrderedDict([
             ("prime_tower_extra_rib_length", "Extra rib length"),
             ("prime_tower_rib_width", "Rib width"),
             ("prime_tower_fillet_wall", "Fillet wall"),
-        ]),
-        ("Purge options", [
+        ],
+        "Purge options": [
             ("purge_in_prime_tower_infill", "Purge into objects' infill"),
             ("purge_in_prime_tower_support", "Purge into objects' support"),
-        ]),
-        ("Special mode", [
+        ],
+        "Special mode": [
             ("slicing_mode", "Slicing Mode"),
             ("print_sequence", "Print sequence"),
             ("spiral_mode", "Spiral vase"),
@@ -264,26 +276,26 @@ PROCESS_LAYOUT = OrderedDict([
             ("fuzzy_skin", "Fuzzy Skin"),
             ("fuzzy_skin_point_dist", "Fuzzy skin point distance"),
             ("fuzzy_skin_thickness", "Fuzzy skin thickness"),
-        ]),
-        ("Advanced", [
+        ],
+        "Advanced": [
             ("enable_clumping_detection", "Enable clumping detection by probing"),
             ("use_beam_interlocking", "Use beam interlocking"),
             ("interlocking_depth", "Interlocking depth of a segmented region"),
-        ]),
-        ("G-code output", [
+        ],
+        "G-code output": [
             ("reduce_infill_retraction", "Reduce infill retraction"),
             ("add_line_number", "Add line number"),
             ("filename_format", "Filename format"),
-        ]),
-        ("Post-processing scripts", [
+        ],
+        "Post-processing scripts": [
             ("post_process", "Post-processing scripts"),
-        ]),
-    ])),
-])
+        ],
+    },
+}
 
-FILAMENT_LAYOUT = OrderedDict([
-    ("Filament", OrderedDict([
-        ("Basic information", [
+FILAMENT_LAYOUT = {
+    "Filament": {
+        "Basic information": [
             ("filament_type", "Type"),
             ("filament_vendor", "Vendor"),
             ("filament_soluble", "Soluble material"),
@@ -311,8 +323,8 @@ FILAMENT_LAYOUT = OrderedDict([
             ("precooling_target_temperature", "Precooling target temperature"),
             ("nozzle_temperature_range_low", "Recommended nozzle temperature (Min)"),
             ("nozzle_temperature_range_high", "Recommended nozzle temperature (Max)"),
-        ]),
-        ("Print temperature", [
+        ],
+        "Print temperature": [
             ("supertack_plate_temp_initial_layer", "Cool Plate SuperTack (Initial layer)"),
             ("supertack_plate_temp", "Cool Plate SuperTack (Other layers)"),
             ("cool_plate_temp_initial_layer", "Cool Plate (Initial layer)"),
@@ -325,25 +337,25 @@ FILAMENT_LAYOUT = OrderedDict([
             ("textured_plate_temp", "Textured PEI Plate (Other layers)"),
             ("nozzle_temperature_initial_layer", "Nozzle (Initial layer)"),
             ("nozzle_temperature", "Nozzle (Other layers)"),
-        ]),
-        ("Volumetric speed limitation", [
+        ],
+        "Volumetric speed limitation": [
             ("adaptive_volumetric_speed", "Adaptive volumetric speed"),
             ("filament_max_volumetric_speed", "Max volumetric speed"),
             ("ramming_volumetric_speed", "Ramming volumetric speed"),
-        ]),
-        ("Filament scarf seam settings", [
+        ],
+        "Filament scarf seam settings": [
             ("filament_scarf_seam_type", "Scarf seam type"),
             ("filament_scarf_start_height", "Scarf start height"),
             ("filament_scarf_slope_gap", "Scarf slope gap"),
             ("filament_scarf_length", "Scarf length"),
-        ]),
-    ])),
-    ("Cooling", OrderedDict([
-        ("Cooling for specific layer", [
+        ],
+    },
+    "Cooling": {
+        "Cooling for specific layer": [
             ("close_fan_the_first_x_layers", "Special cooling settings (layers)"),
             ("first_x_layer_fan_speed", "Fan speed"),
-        ]),
-        ("Part cooling fan", [
+        ],
+        "Part cooling fan": [
             ("fan_min_speed", "Min fan speed threshold (Fan speed)"),
             ("fan_min_speed_layer_time", "Min fan speed threshold (Layer time)"),
             ("fan_max_speed", "Max fan speed threshold (Fan speed)"),
@@ -359,13 +371,13 @@ FILAMENT_LAYOUT = OrderedDict([
             ("overhang_threshold_for_participating_cooling", "Overhang threshold for participating cooling"),
             ("overhang_fan_speed", "Fan speed for overhangs"),
             ("pre_start_fan_time", "Pre start fan time"),
-        ]),
-        ("Auxiliary part cooling fan", [
+        ],
+        "Auxiliary part cooling fan": [
             ("auxiliary_fan_speed", "Fan speed"),
-        ]),
-    ])),
-    ("Setting Overrides", OrderedDict([
-        ("Retraction", [
+        ],
+    },
+    "Setting Overrides": {
+        "Retraction": [
             ("filament_retraction_length", "Length"),
             ("filament_z_hop", "Z hop when retract"),
             ("filament_z_hop_type", "Z Hop Type"),
@@ -379,27 +391,27 @@ FILAMENT_LAYOUT = OrderedDict([
             ("filament_wipe_distance", "Wipe Distance"),
             ("retract_amount_before_wipe", "Retract amount before wipe"),
             ("long_retraction_when_cut", "Long retraction when cut (experimental)"),
-        ]),
-        ("Speed", [
+        ],
+        "Speed": [
             ("override_overhang_speed", "Override overhang speed"),
-        ]),
-    ])),
-    ("Advanced", OrderedDict([
-        ("Filament start G-code", [
+        ],
+    },
+    "Advanced": {
+        "Filament start G-code": [
             ("filament_start_gcode", "Filament start G-code"),
-        ]),
-        ("Filament end G-code", [
+        ],
+        "Filament end G-code": [
             ("filament_end_gcode", "Filament end G-code"),
-        ]),
-    ])),
-    ("Notes", OrderedDict([
-        ("Notes", [
+        ],
+    },
+    "Notes": {
+        "Notes": [
             ("filament_notes", "Notes"),
-        ]),
-    ])),
-    ("Multi Filament", OrderedDict([
-    ])),
-])
+        ],
+    },
+    "Multi Filament": {
+    },
+}
 
 # Build key sets for each layout
 _ALL_PROCESS_KEYS = set()
@@ -1697,8 +1709,8 @@ class CompareDialog(tk.Toplevel):
         self.theme = theme
         self.title("Compare Profiles")
         self.configure(bg=theme.bg)
-        self.geometry("960x650")
-        self.minsize(750, 450)
+        self.geometry(f"{_DLG_COMPARE_WIDTH}x{_DLG_COMPARE_HEIGHT}")
+        self.minsize(_DLG_COMPARE_MIN_WIDTH, _DLG_COMPARE_MIN_HEIGHT)
         self.transient(parent)
         self._build(profile_a, profile_b)
 
@@ -1739,7 +1751,7 @@ class CompareDialog(tk.Toplevel):
                     key_to_group[json_key] = f"{tab_name} \u203a {sec_name}"
 
         # Group diffs by section
-        grouped = OrderedDict()
+        grouped = {}
         for key in sorted(diffs.keys(), key=lambda k: (key_to_group.get(k, "zzz"), k)):
             group = key_to_group.get(key, "Other")
             if group not in grouped:
@@ -1854,7 +1866,7 @@ class CompareDialog(tk.Toplevel):
         s = str(v)
         if key and key in ENUM_VALUES:
             return _get_enum_human_label(key, s)
-        return s[:40] + "..." if len(s) > 40 else s
+        return s[:_VALUE_TRUNCATE_SHORT] + "..." if len(s) > _VALUE_TRUNCATE_SHORT else s
 
     def _delta(self, a, b):
         """Compute a human-readable delta between two values."""
@@ -2205,16 +2217,13 @@ class ProfileDetailPanel(tk.Frame):
                 return unique[0]
         return str(value) if not isinstance(value, list) else None
 
-    # Fixed label column width for two-column grid (pixels)
-    _LABEL_COL_WIDTH = 220
-
     def _render_param(self, label, key, value, discovered=False):
         t = self.theme
         is_inherited = key in self._inherited_keys
 
         row = tk.Frame(self._content_frame, bg=t.param_bg)
         row.pack(fill="x", padx=14, pady=2)
-        row.columnconfigure(0, minsize=self._LABEL_COL_WIDTH)
+        row.columnconfigure(0, minsize=_LABEL_COL_WIDTH)
         row.columnconfigure(1, weight=1)
 
         # Label column — bold for overrides, regular for inherited
@@ -2456,7 +2465,7 @@ class ProfileDetailPanel(tk.Frame):
         s = str(value)
         if key and key in ENUM_VALUES:
             return _get_enum_human_label(key, s)
-        return s[:80] + "..." if len(s) > 80 else s
+        return s[:_VALUE_TRUNCATE_LONG] + "..." if len(s) > _VALUE_TRUNCATE_LONG else s
 
     def _start_header_rename(self):
         """Replace the profile name label with an editable Entry on double-click."""
@@ -3002,7 +3011,7 @@ class ProfileListPanel(tk.Frame):
                      bg="#333333", fg="#ededed", font=(UI_FONT, 11),
                      padx=8, pady=4, relief="solid", bd=1, justify="left").pack()
             self._tree_tip = tw
-        self._tree_tip_after = self.tree.after(600, _show)
+        self._tree_tip_after = self.tree.after(_TREE_TOOLTIP_DELAY_MS, _show)
 
     def _on_tree_leave(self, event):
         if self._tree_tip_after:
@@ -3080,7 +3089,7 @@ class App(tk.Tk):
             self.preset_index.build(path, name)
 
         self.title(APP_NAME)
-        self.geometry("1300x780")
+        self.geometry(f"{_WIN_WIDTH}x{_WIN_HEIGHT}")
         self.minsize(1000, 600)
         self.configure(bg=self.theme.bg)
 
@@ -3099,7 +3108,7 @@ class App(tk.Tk):
         style.configure("TFrame", background=t.bg)
         style.configure("TLabel", background=t.bg, foreground=t.fg)
         style.configure("Treeview", background=t.bg2, foreground=t.fg,
-                         fieldbackground=t.bg2, rowheight=26)
+                         fieldbackground=t.bg2, rowheight=_TREE_ROW_HEIGHT)
         style.map("Treeview",
                    background=[("selected", t.sel)],
                    foreground=[("selected", t.fg)])
