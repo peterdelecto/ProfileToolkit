@@ -37,9 +37,7 @@ else:
     UI_FONT = "DejaVu Sans"     # Widely available on Linux
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# BambuStudio UI Layout Definitions
-# ─────────────────────────────────────────────────────────────────────────────
+# --- BambuStudio UI Layout Definitions ---
 # Each entry: (json_key, ui_label)
 # Ordering matches BambuStudio's UI exactly (from screenshots + source code).
 
@@ -425,9 +423,7 @@ _IDENTITY_KEYS = {
 }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Enum Parameter Definitions
-# ─────────────────────────────────────────────────────────────────────────────
+# --- Enum Parameter Definitions ---
 # Each key maps to a list of (json_value, human_label) tuples.
 # If a profile contains a value not in this list, it is auto-humanized and
 # appended to the dropdown so nothing is ever lost.
@@ -676,9 +672,7 @@ def _get_enum_human_label(key: str, raw_value) -> str:
     return _humanize_enum_value(s)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Known Printers & Nozzles
-# ─────────────────────────────────────────────────────────────────────────────
+# --- Known Printers & Nozzles ---
 
 KNOWN_PRINTERS = {
     "Bambu Lab": [
@@ -709,9 +703,7 @@ _FILAMENT_TYPES = {"PLA", "ABS", "PETG", "TPU", "ASA", "HIPS", "PVA",
                    "PC", "PA", "PP", "PET", "PCTG", "POM", "PVDF"}
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Preset Index — resolves inheritance chains
-# ─────────────────────────────────────────────────────────────────────────────
+# --- Preset Index — resolves inheritance chains ---
 
 class PresetIndex:
     """
@@ -825,9 +817,7 @@ class PresetIndex:
         return base in self._by_name
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Theme
-# ─────────────────────────────────────────────────────────────────────────────
+# --- Theme ---
 
 class Theme:
     """OrcaSlicer Teal dark theme."""
@@ -858,9 +848,7 @@ class Theme:
         self.edit_bg = "#2a2a2a"    # Subtle bg for editable value fields
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Profile Data Model
-# ─────────────────────────────────────────────────────────────────────────────
+# --- Profile Data Model ---
 
 class Profile:
     def __init__(self, data: dict, source_path: str, source_type: str,
@@ -1090,9 +1078,7 @@ class Profile:
         return f"{name or 'profile'}.json"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Profile Engine
-# ─────────────────────────────────────────────────────────────────────────────
+# --- Profile Engine ---
 
 class ProfileEngine:
 
@@ -1362,9 +1348,7 @@ class ProfileEngine:
         raise ValueError(f"Unsupported: {ext}")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Slicer Detection
-# ─────────────────────────────────────────────────────────────────────────────
+# --- Slicer Detection ---
 
 class SlicerDetector:
     PATHS = {
@@ -1422,9 +1406,7 @@ class SlicerDetector:
         return slicer_path
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Tooltip Helper
-# ─────────────────────────────────────────────────────────────────────────────
+# --- Tooltip Helper ---
 
 class _Tooltip:
     """Lightweight hover tooltip for any widget."""
@@ -1702,9 +1684,7 @@ class ConvertDialog(tk.Toplevel):
         self.destroy()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Compare Dialog
-# ─────────────────────────────────────────────────────────────────────────────
+# --- Compare Dialog ---
 
 class CompareDialog(tk.Toplevel):
     """Side-by-side comparison of two profiles, grouped by section."""
@@ -1887,9 +1867,7 @@ class CompareDialog(tk.Toplevel):
             return "—"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Detail Panel — BambuStudio-style tabbed viewer
-# ─────────────────────────────────────────────────────────────────────────────
+# --- Detail Panel — BambuStudio-style tabbed viewer ---
 
 class ProfileDetailPanel(tk.Frame):
     """Renders a profile's settings using BambuStudio's exact tab/section layout."""
@@ -2528,9 +2506,7 @@ class ProfileDetailPanel(tk.Frame):
         entry.bind("<Escape>", _cancel)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Profile List Panel (reusable for each top-level tab)
-# ─────────────────────────────────────────────────────────────────────────────
+# --- Profile List Panel (reusable for each top-level tab) ---
 
 class ProfileListPanel(tk.Frame):
     """Left panel with a list of profiles and a detail viewer on the right."""
@@ -3085,9 +3061,7 @@ class ProfileListPanel(tk.Frame):
         entry.bind("<Escape>", _cancel)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Main Application
-# ─────────────────────────────────────────────────────────────────────────────
+# --- Main Application ---
 
 class App(tk.Tk):
     def __init__(self):
