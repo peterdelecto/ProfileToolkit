@@ -683,15 +683,6 @@ def _get_enum_human_label(key: str, raw_value) -> str:
     return _humanize_enum_value(s)
 
 
-def _get_enum_json_value(key: str, human_label: str) -> str:
-    """Map a human label back to the json value for storage."""
-    lookup = _ENUM_LABEL_TO_JSON.get(key)
-    if lookup and human_label in lookup:
-        return lookup[human_label]
-    # For unknown values that were auto-humanized, return lowercase
-    return human_label
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Known Printers & Nozzles
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2862,11 +2853,6 @@ class ProfileListPanel(tk.Frame):
                                    "\n".join(errors))
         else:
             self.app._update_status(f"Deleted {deleted} file{'s' if deleted != 1 else ''} from disk.")
-
-    def clear_all(self):
-        self.profiles.clear()
-        self._refresh_list()
-        self.detail._show_placeholder()
 
     def select_all(self):
         all_items = []
