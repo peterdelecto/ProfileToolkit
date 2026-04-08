@@ -2541,20 +2541,11 @@ class ProfileListPanel(tk.Frame):
 
         self._build()
 
-    def _build(self):
+    def _build_filter(self, parent) -> None:
         theme = self.theme
 
-        paned = tk.PanedWindow(self, orient="horizontal", bg=theme.border,
-                                sashwidth=4, sashrelief="flat",
-                                opaqueresize=True)
-        paned.pack(fill="both", expand=True)
-
-        # ── Left: profile list ──
-        left = tk.Frame(paned, bg=theme.bg2)
-        paned.add(left, minsize=320, width=480)
-
         # ── Filter row ──
-        filter_frame = tk.Frame(left, bg=theme.bg3, highlightbackground=theme.border, highlightthickness=1)
+        filter_frame = tk.Frame(parent, bg=theme.bg3, highlightbackground=theme.border, highlightthickness=1)
         filter_frame.pack(fill="x", padx=6, pady=(0, 4))
         tk.Label(filter_frame, text="\u2315", bg=theme.bg3, fg=theme.fg3, font=(UI_FONT, 14),
                  padx=6).pack(side="left")
@@ -2581,7 +2572,7 @@ class ProfileListPanel(tk.Frame):
         self._group_var = tk.StringVar(value=self._group_labels[0])
         self._group_by = "none"
 
-        group_frame = tk.Frame(left, bg=theme.bg2)
+        group_frame = tk.Frame(parent, bg=theme.bg2)
         group_frame.pack(fill="x", padx=6, pady=(0, 4))
         tk.Label(group_frame, text="Group:", bg=theme.bg2, fg=theme.fg3,
                  font=(UI_FONT, 13)).pack(side="left", padx=(2, 6))
@@ -2592,8 +2583,11 @@ class ProfileListPanel(tk.Frame):
         group_cb.pack(side="left")
         group_cb.bind("<<ComboboxSelected>>", self._on_group_change)
 
+    def _build_tree(self, parent) -> None:
+        theme = self.theme
+
         # ── Treeview (must exist before trace) ──
-        tree_frame = tk.Frame(left, bg=theme.bg2)
+        tree_frame = tk.Frame(parent, bg=theme.bg2)
         tree_frame.pack(fill="both", expand=True, padx=6, pady=(0, 4))
 
         self.tree = ttk.Treeview(tree_frame, columns=("name", "status", "origin"),
@@ -2633,9 +2627,12 @@ class ProfileListPanel(tk.Frame):
         else:
             self.tree.bind("<Button-3>", self._on_context_menu)
 
+    def _build_actions(self, parent) -> None:
+        theme = self.theme
+
         # ── Action rows below treeview ──
         # Row 1: secondary actions (left) + utility (right)
-        action_row1 = tk.Frame(left, bg=theme.bg2)
+        action_row1 = tk.Frame(parent, bg=theme.bg2)
         action_row1.pack(fill="x", padx=6, pady=(0, 2))
         _make_btn(action_row1, "Remove from list",
                   lambda: self.app._on_remove(),
@@ -2655,10 +2652,10 @@ class ProfileListPanel(tk.Frame):
                   font=(UI_FONT, 10), padx=6, pady=3).pack(side="right", padx=(0, 3))
 
         # Thin separator between secondary and primary actions
-        tk.Frame(left, bg=theme.border, height=1).pack(fill="x", padx=6, pady=(2, 2))
+        tk.Frame(parent, bg=theme.border, height=1).pack(fill="x", padx=6, pady=(2, 2))
 
         # Row 2: primary convert actions
-        action_row2 = tk.Frame(left, bg=theme.bg2)
+        action_row2 = tk.Frame(parent, bg=theme.bg2)
         action_row2.pack(fill="x", padx=6, pady=(0, 4))
         _make_btn(action_row2, "Convert Selected",
                   lambda: self.app._on_convert(),
@@ -2669,6 +2666,21 @@ class ProfileListPanel(tk.Frame):
                   lambda: self.app._on_convert_all(),
                   bg=theme.convert_all_bg, fg=theme.btn_fg,
                   font=(UI_FONT, 11, "bold"), padx=8, pady=4).pack(side="right", padx=(0, 4))
+
+    def _build(self):
+        theme = self.theme
+
+        paned = tk.PanedWindow(self, orient="horizontal", bg=theme.border,
+                                sashwidth=4, sashrelief="flat",
+                                opaqueresize=True)
+        paned.pack(fill="both", expand=True)
+
+        left = tk.Frame(paned, bg=theme.bg2)
+        paned.add(left, minsize=320, width=480)
+
+        self._build_filter(left)
+        self._build_tree(left)
+        self._build_actions(left)
 
         # ── Right: detail panel ──
         self.detail = ProfileDetailPanel(paned, theme)
