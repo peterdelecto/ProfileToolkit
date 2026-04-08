@@ -3288,8 +3288,8 @@ class App(tk.Tk):
         self._content_area = tk.Frame(self, bg=theme.bg)
         self._content_area.pack(fill="both", expand=True)
 
-        self.process_panel = ProfileListPanel(self._content_area, t, "process", self)
-        self.filament_panel = ProfileListPanel(self._content_area, t, "filament", self)
+        self.process_panel = ProfileListPanel(self._content_area, theme, "process", self)
+        self.filament_panel = ProfileListPanel(self._content_area, theme, "filament", self)
 
         # Show process panel by default
         self.process_panel.pack(fill="both", expand=True)
