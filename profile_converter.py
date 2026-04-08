@@ -2165,7 +2165,10 @@ class ProfileDetailPanel(tk.Frame):
             if _is_mac:
                 self._content_canvas.yview_scroll(int(-1 * e.delta), "units")
             else:
-                self._content_canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+                units = round(-1 * e.delta / 120)
+                if units == 0:
+                    units = -1 if e.delta > 0 else 1
+                self._content_canvas.yview_scroll(units, "units")
         def _on_scroll_up(e):
             self._content_canvas.yview_scroll(-3, "units")
         def _on_scroll_down(e):
