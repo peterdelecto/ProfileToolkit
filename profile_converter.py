@@ -1965,6 +1965,7 @@ class ProfileDetailPanel(tk.Frame):
         self._undo_stack = []  # list of (key, old_value) for undo
         self._pre_edit_modified = None  # snapshot of profile.modified before first edit
         self._param_order = []  # ordered list of (key, container, fg_color) for Tab nav
+        self._header_frame = None
         self._show_placeholder()
 
         # Bind Cmd+Z / Ctrl+Z for undo
@@ -2044,6 +2045,7 @@ class ProfileDetailPanel(tk.Frame):
 
         # ── Header (compact: 3 rows max) ──
         hdr = tk.Frame(self, bg=t.bg2)
+        self._header_frame = hdr
         hdr.pack(fill="x", padx=10, pady=(6, 0))
 
         # Row 1: profile name with type prefix (double-click to rename)
@@ -2541,7 +2543,7 @@ class ProfileDetailPanel(tk.Frame):
 
         self._name_label.destroy()
         # Get the header frame (parent of the label)
-        hdr = self.winfo_children()[0]  # First child is the header frame
+        hdr = self._header_frame
 
         name_frame = tk.Frame(hdr, bg=t.bg2)
         name_frame.pack(anchor="w", fill="x")
