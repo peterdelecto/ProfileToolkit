@@ -770,9 +770,9 @@ class PresetIndex:
 
     def add_profiles(self, profiles):
         """Add loaded Profile objects to the index (for cross-referencing)."""
-        for p in profiles:
-            if p.name and p.name not in self._by_name:
-                self._by_name[p.name] = p.data
+        for profile in profiles:
+            if profile.name and profile.name not in self._by_name:
+                self._by_name[profile.name] = profile.data
 
     def resolve(self, profile, max_depth: int = 10):
         """
@@ -1153,10 +1153,10 @@ class ProfileEngine:
         # Deduplicate by name
         seen = set()
         unique = []
-        for p in profiles:
-            if p.name not in seen:
-                seen.add(p.name)
-                unique.append(p)
+        for profile in profiles:
+            if profile.name not in seen:
+                seen.add(profile.name)
+                unique.append(profile)
         return unique
 
     @staticmethod
@@ -1717,34 +1717,34 @@ class CompareDialog(tk.Toplevel):
         self.transient(parent)
         self._build(profile_a, profile_b)
 
-    def _build(self, pa, pb):
+    def _build(self, profile_a, profile_b):
         theme = self.theme
 
         # ── Header: two profile name columns ──
         header_frame = tk.Frame(self, bg=theme.bg)
         header_frame.pack(fill="x", padx=16, pady=(10, 4))
         # Left name
-        tk.Label(header_frame, text=pa.name, bg=theme.bg, fg=theme.accent,
+        tk.Label(header_frame, text=profile_a.name, bg=theme.bg, fg=theme.accent,
                  font=(UI_FONT, 13, "bold")).pack(side="left")
         # Centered "vs"
         tk.Label(header_frame, text="  vs  ", bg=theme.bg, fg=theme.fg2,
                  font=(UI_FONT, 12)).pack(side="left")
         # Right name
-        tk.Label(header_frame, text=pb.name, bg=theme.bg, fg=theme.warning,
+        tk.Label(header_frame, text=profile_b.name, bg=theme.bg, fg=theme.warning,
                  font=(UI_FONT, 13, "bold")).pack(side="left")
 
         # ── Find differences and group by section ──
-        all_keys = set(pa.data.keys()) | set(pb.data.keys())
+        all_keys = set(profile_a.data.keys()) | set(profile_b.data.keys())
         all_keys -= _IDENTITY_KEYS
         diffs = {}
         for k in all_keys:
-            va = pa.data.get(k)
-            vb = pb.data.get(k)
-            if va != vb:
-                diffs[k] = (va, vb)
+            value_a = profile_a.data.get(k)
+            value_b = profile_b.data.get(k)
+            if value_a != value_b:
+                diffs[k] = (value_a, value_b)
 
         # Build section lookup from layout
-        layout = FILAMENT_LAYOUT if pa.profile_type == "filament" else PROCESS_LAYOUT
+        layout = FILAMENT_LAYOUT if profile_a.profile_type == "filament" else PROCESS_LAYOUT
         key_to_label = {}
         key_to_group = {}  # key -> "Tab > Section"
         for tab_name, sections in layout.items():
@@ -1821,24 +1821,24 @@ class CompareDialog(tk.Toplevel):
                      font=(UI_FONT, 12, "bold"), padx=4).pack(side="left")
 
             for key in keys:
-                va, vb = diffs[key]
+                value_a, value_b = diffs[key]
                 bg = theme.bg2 if row_idx % 2 == 0 else theme.bg3
                 row = tk.Frame(body, bg=bg)
                 row.pack(fill="x")
 
                 label = key_to_label.get(key, key)
-                va_str = self._fmt(va, key=key)
-                vb_str = self._fmt(vb, key=key)
-                delta = self._delta(va, vb)
+                va_str = self._fmt(value_a, key=key)
+                vb_str = self._fmt(value_b, key=key)
+                delta = self._delta(value_a, value_b)
 
                 tk.Label(row, text=label, bg=bg, fg=theme.fg, font=(UI_FONT, 12),
                          anchor="w", padx=10, pady=3).pack(side="left", fill="x", expand=True)
                 # Left value
-                va_fg = theme.accent if va is not None else theme.fg3
+                va_fg = theme.accent if value_a is not None else theme.fg3
                 tk.Label(row, text=va_str, bg=bg, fg=va_fg, font=(UI_FONT, 12),
                          width=18, anchor="w", padx=4).pack(side="left")
                 # Right value
-                vb_fg = theme.warning if vb is not None else theme.fg3
+                vb_fg = theme.warning if value_b is not None else theme.fg3
                 tk.Label(row, text=vb_str, bg=bg, fg=vb_fg, font=(UI_FONT, 12),
                          width=18, anchor="w", padx=4).pack(side="left")
                 # Delta
@@ -1874,11 +1874,11 @@ class CompareDialog(tk.Toplevel):
     def _delta(self, a, b):
         """Compute a human-readable delta between two values."""
         try:
-            fa = float(a[0] if isinstance(a, list) else a)
-            fb = float(b[0] if isinstance(b, list) else b)
-            if fa == 0:
-                return f"+{fb}" if fb != 0 else "—"
-            pct = ((fb - fa) / abs(fa)) * 100
+            float_a = float(a[0] if isinstance(a, list) else a)
+            float_b = float(b[0] if isinstance(b, list) else b)
+            if float_a == 0:
+                return f"+{float_b}" if float_b != 0 else "—"
+            pct = ((float_b - float_a) / abs(float_a)) * 100
             sign = "+" if pct > 0 else ""
             return f"{sign}{pct:.0f}%"
         except (TypeError, ValueError, IndexError):
@@ -2747,10 +2747,10 @@ class ProfileListPanel(tk.Frame):
             return
         # Collect unique file paths
         paths = []
-        for p in selected:
-            if p.source_path and os.path.isfile(p.source_path):
-                if p.source_path not in [x[1] for x in paths]:
-                    paths.append((p.name, p.source_path))
+        for profile in selected:
+            if profile.source_path and os.path.isfile(profile.source_path):
+                if profile.source_path not in [x[1] for x in paths]:
+                    paths.append((profile.name, profile.source_path))
 
         if not paths:
             messagebox.showinfo("Nothing to delete",
@@ -3317,31 +3317,31 @@ class App(tk.Tk):
             origin = item[2] if len(item) > 2 else ""
             try:
                 profiles = ProfileEngine.load_file(path, type_hint)
-                for p in profiles:
+                for profile in profiles:
                     if origin:
-                        p.origin = origin
+                        profile.origin = origin
                 all_new.extend(profiles)
             except Exception as e:
                 errors.append(f"{os.path.basename(path)}: {e}")
 
         # Add to index for cross-referencing, then resolve inheritance
         self.preset_index.add_profiles(all_new)
-        for p in all_new:
-            if p.inherits:
-                self.preset_index.resolve(p)
-                if p.resolved_data:
+        for profile in all_new:
+            if profile.inherits:
+                self.preset_index.resolve(profile)
+                if profile.resolved_data:
                     resolved_count += 1
 
         # Sort into panels
-        for p in all_new:
-            if p.profile_type == "process":
-                self.process_panel.add_profiles([p])
+        for profile in all_new:
+            if profile.profile_type == "process":
+                self.process_panel.add_profiles([profile])
                 loaded_p += 1
-            elif p.profile_type == "filament":
-                self.filament_panel.add_profiles([p])
+            elif profile.profile_type == "filament":
+                self.filament_panel.add_profiles([profile])
                 loaded_f += 1
             else:
-                self.process_panel.add_profiles([p])
+                self.process_panel.add_profiles([profile])
                 loaded_p += 1
 
         if errors:
@@ -3363,11 +3363,11 @@ class App(tk.Tk):
         dlg = ConvertDialog(self, self.theme, len(selected))
         if dlg.result is None:
             return
-        for p in selected:
+        for profile in selected:
             if dlg.result == "universal":
-                p.make_universal()
+                profile.make_universal()
             else:
-                p.retarget(dlg.result)
+                profile.retarget(dlg.result)
         panel._refresh_list()
         panel._on_select()
         self._update_status(f"Converted {len(selected)} profile(s).")
@@ -3381,11 +3381,11 @@ class App(tk.Tk):
         dlg = ConvertDialog(self, self.theme, len(all_profiles))
         if dlg.result is None:
             return
-        for p in all_profiles:
+        for profile in all_profiles:
             if dlg.result == "universal":
-                p.make_universal()
+                profile.make_universal()
             else:
-                p.retarget(dlg.result)
+                profile.retarget(dlg.result)
         panel._refresh_list()
         panel._on_select()
         self._update_status(f"Converted all {len(all_profiles)} profile(s).")
@@ -3467,7 +3467,7 @@ class App(tk.Tk):
         profiles_word = "profile" if count == 1 else "profiles"
 
         # Build a descriptive summary for the confirmation
-        names = [p.name for p in selected[:3]]
+        names = [profile.name for profile in selected[:3]]
         summary = ", ".join(names)
         if count > 3:
             summary += f", and {count - 3} more"
@@ -3490,22 +3490,22 @@ class App(tk.Tk):
 
     def _do_export(self, profiles, out_dir, organize=False, flatten=False, quiet=False):
         exported, errors = 0, []
-        for p in profiles:
+        for profile in profiles:
             try:
-                dest_dir = (os.path.join(out_dir, p.profile_type)
-                     if organize and p.profile_type != "unknown" else out_dir)
+                dest_dir = (os.path.join(out_dir, profile.profile_type)
+                     if organize and profile.profile_type != "unknown" else out_dir)
                 os.makedirs(dest_dir, exist_ok=True)
-                fp = os.path.join(dest_dir, p.suggested_filename())
+                fp = os.path.join(dest_dir, profile.suggested_filename())
                 counter = 1
                 base, ext = os.path.splitext(fp)
                 while os.path.exists(fp):
                     fp = f"{base}_{counter}{ext}"
                     counter += 1
                 with open(fp, "w", encoding="utf-8") as f:
-                    f.write(p.to_json(flatten=flatten))
+                    f.write(profile.to_json(flatten=flatten))
                 exported += 1
             except Exception as e:
-                errors.append(f"{p.name}: {e}")
+                errors.append(f"{profile.name}: {e}")
         if errors:
             messagebox.showwarning("Partial Export",
                                    f"Exported {exported}, errors:\n\n" + "\n".join(errors))
