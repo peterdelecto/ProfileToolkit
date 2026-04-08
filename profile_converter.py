@@ -2493,9 +2493,10 @@ class ProfileDetailPanel(tk.Frame):
                         result.append(ref)
                 else:
                     result.append(part)
-            # If original was uniform array and user typed a single value, replicate
-            if len(parts) == 1 and len(original) > 1:
-                result = result * len(original)
+            # Pad shorter input to original length using last entered value.
+            # Guard: if all parts failed to parse, result may be empty — don't crash.
+            if result and len(result) < len(original):
+                result.extend([result[-1]] * (len(original) - len(result)))
             return result
         return text
 
