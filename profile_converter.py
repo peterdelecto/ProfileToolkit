@@ -1926,6 +1926,10 @@ class ProfileDetailPanel(tk.Frame):
         self._pre_edit_modified = None  # snapshot of profile.modified before first edit
         self._param_order = []  # ordered list of (key, container, fg_color) for Tab nav
         self._header_frame = None
+        self._content_canvas = None
+        self._content_frame = None
+        self._content_sb = None
+        self._canvas_window = None
         self._show_placeholder()
 
         # Bind Cmd+Z / Ctrl+Z for undo
@@ -1986,7 +1990,8 @@ class ProfileDetailPanel(tk.Frame):
         return "break"
 
     def _build_header(self, profile) -> tk.Frame:
-        """Build and pack the profile name/status header. Returns the header frame."""
+        """Build and pack the profile name/status header. Returns the header frame.
+        Requires self._display_data and self._inherited_keys to be set by the caller first."""
         theme = self.theme
 
         # ── Header (compact: 3 rows max) ──
@@ -2073,8 +2078,6 @@ class ProfileDetailPanel(tk.Frame):
         tab_bar = tk.Frame(self, bg=theme.bg2)
         tab_bar.pack(fill="x", padx=10, pady=(6, 0))
 
-        self._tab_buttons = []
-        self._current_tab = None
         tab_names = list(layout.keys())
 
         for tab_name in tab_names:
@@ -2125,6 +2128,8 @@ class ProfileDetailPanel(tk.Frame):
         self._undo_stack = []  # Reset undo stack for new profile
         self._pre_edit_modified = None
         self._param_order = []
+        self._tab_buttons = []
+        self._current_tab = None
         for w in self.winfo_children():
             w.destroy()
 
