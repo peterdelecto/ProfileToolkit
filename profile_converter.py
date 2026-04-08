@@ -1213,7 +1213,7 @@ class ProfileEngine:
                                 item["name"] = f"Extracted profile ({basename})"
                     profiles.append(Profile(item, source_path, "3mf"))
         except (json.JSONDecodeError, ValueError):
-            pass  # Not valid JSON — fall through to XML/INI parsers
+            pass  # Malformed JSON — return empty list; dispatcher returns it directly
         return profiles
 
     @staticmethod
@@ -1297,6 +1297,7 @@ class ProfileEngine:
         try:
             profiles = ProfileEngine._parse_config_xml(content, source_path)
         except ET.ParseError:
+            # Not valid XML — fall back to INI-style [section:name] key=value parser
             profiles = ProfileEngine._parse_config_ini(content, source_path)
 
         # Flat key=value fallback: if no profiles found and content has assignments
