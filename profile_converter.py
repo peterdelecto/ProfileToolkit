@@ -1,17 +1,9 @@
 #!/usr/bin/env python3
 """
-Print Profile Converter v2.1.0
+Print Profile Converter v2.2.0
 ===============================
 Cross-platform GUI for unlocking/converting 3D printer slicer profiles.
 Mirrors BambuStudio's exact UI layout. OrcaSlicer-inspired teal theme.
-
-Fixes in 2.1:
-  - Profile type detection uses directory hint (no more filament→process misclass)
-  - Inherited profiles show clearly what they inherit from
-  - No confirmation dialog on slicer import; added Clear List button
-  - Future-proof: unknown keys shown in "Discovered" section per tab
-  - Preset comparison view (secondary feature)
-  - OrcaSlicer Teal flat dark theme
 
 No external dependencies — Python standard library + tkinter.
 """
@@ -1429,10 +1421,6 @@ class SlicerDetector:
                     return ep
         return slicer_path
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Convert Dialog
-# ─────────────────────────────────────────────────────────────────────────────
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Tooltip Helper
