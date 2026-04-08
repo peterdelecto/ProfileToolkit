@@ -2301,6 +2301,11 @@ class ProfileDetailPanel(tk.Frame):
             _Tooltip(lbl, f"JSON key: {key}")
 
         display = self._format_value(value, key=key)
+        # "nil" is BambuStudio's sentinel for "not set / 0" — show 0 for readability.
+        # The edit field deliberately keeps "nil" so click-through doesn't silently
+        # overwrite it with 0.
+        if display == "nil":
+            display = "0"
 
         # Check if this is an enum parameter that should get a dropdown
         raw_str = self._get_raw_enum_str(value)
@@ -3194,13 +3199,16 @@ class App(tk.Tk):
 
         self.title(APP_NAME)
         self.geometry(f"{_WIN_WIDTH}x{_WIN_HEIGHT}")
-        self.minsize(1000, 600)
         self.configure(bg=self.theme.bg)
 
         self._configure_styles()
         self._build_menu()
         self._build_ui()
         self._update_status("Ready. Open profiles or extract from .3mf to get started.")
+
+        # Set minimum size after UI is built and mapped so tkinter enforces it correctly.
+        self.update_idletasks()
+        self.minsize(1020, 620)
 
     def _configure_styles(self):
         theme = self.theme
