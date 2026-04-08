@@ -1463,6 +1463,22 @@ class _Tooltip:
         self.text = text
 
 
+def _bind_scroll(widget, canvas):
+    """Bind mousewheel/scroll-button events on widget to scroll the given canvas."""
+    is_mac = platform.system() == "Darwin"
+    def _on_wheel(e):
+        if is_mac:
+            canvas.yview_scroll(int(-1 * e.delta), "units")
+        else:
+            units = round(-1 * e.delta / 120)
+            if units == 0:
+                units = -1 if e.delta > 0 else 1
+            canvas.yview_scroll(units, "units")
+    widget.bind("<MouseWheel>", _on_wheel)
+    widget.bind("<Button-4>", lambda e: canvas.yview_scroll(-3, "units"))
+    widget.bind("<Button-5>", lambda e: canvas.yview_scroll(3, "units"))
+
+
 def _make_btn(parent, text, command, bg, fg, font=(UI_FONT, 11), padx=10, pady=4, **kw):
     """Create a Label-based button. macOS ignores bg/fg on tk.Button;
     Labels respect them and we bind click events manually.
@@ -1791,19 +1807,11 @@ class CompareDialog(tk.Toplevel):
         scrollbar.pack(side="right", fill="y")
         canvas.bind("<Configure>", lambda e: canvas.itemconfig(canvas_window_id, width=e.width))
 
-        # Scroll helper — bind to all children
-        def _scroll(e):
-            canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
-        def _scroll_up(e):
-            canvas.yview_scroll(-3, "units")
-        def _scroll_down(e):
-            canvas.yview_scroll(3, "units")
-        def _bind_scroll(widget):
-            widget.bind("<MouseWheel>", _scroll)
-            widget.bind("<Button-4>", _scroll_up)
-            widget.bind("<Button-5>", _scroll_down)
+        # Scroll helper — bind to widget and all children
+        def _bind_scroll_recursive(widget):
+            _bind_scroll(widget, canvas)
             for child in widget.winfo_children():
-                _bind_scroll(child)
+                _bind_scroll_recursive(child)
 
         # ── Render grouped sections ──
         row_idx = 0
@@ -1847,7 +1855,7 @@ class CompareDialog(tk.Toplevel):
             tk.Label(body, text="These profiles are identical.",
                      bg=theme.bg2, fg=theme.fg2, font=(UI_FONT, 13), pady=30).pack()
 
-        _bind_scroll(body)
+        _bind_scroll_recursive(body)
 
     def _fmt(self, v, key=None):
         if v is None:
@@ -2090,24 +2098,7 @@ class ProfileDetailPanel(tk.Frame):
                                        self._canvas_window, width=e.width))
         # Scroll binding — bind to canvas and also recursively bind to content
         # frame children after each tab switch (see _bind_scroll_recursive)
-        _is_mac = platform.system() == "Darwin"
-        def _on_mousewheel(e):
-            # macOS delta is ±1..N pixels; Windows/Linux delta is ±120 multiples
-            if _is_mac:
-                self._content_canvas.yview_scroll(int(-1 * e.delta), "units")
-            else:
-                units = round(-1 * e.delta / 120)
-                if units == 0:
-                    units = -1 if e.delta > 0 else 1
-                self._content_canvas.yview_scroll(units, "units")
-        def _on_scroll_up(e):
-            self._content_canvas.yview_scroll(-3, "units")
-        def _on_scroll_down(e):
-            self._content_canvas.yview_scroll(3, "units")
-        self._scroll_fns = (_on_mousewheel, _on_scroll_up, _on_scroll_down)
-        self._content_canvas.bind("<MouseWheel>", _on_mousewheel)
-        self._content_canvas.bind("<Button-4>", _on_scroll_up)
-        self._content_canvas.bind("<Button-5>", _on_scroll_down)
+        _bind_scroll(self._content_canvas, self._content_canvas)
 
         if tab_names:
             self._switch_tab(tab_names[0])
@@ -2174,13 +2165,9 @@ class ProfileDetailPanel(tk.Frame):
 
     def _bind_scroll_recursive(self, widget):
         """Recursively bind scroll events to all children of a widget."""
-        if hasattr(self, "_scroll_fns"):
-            mw, su, sd = self._scroll_fns
-            widget.bind("<MouseWheel>", mw)
-            widget.bind("<Button-4>", su)
-            widget.bind("<Button-5>", sd)
-            for child in widget.winfo_children():
-                self._bind_scroll_recursive(child)
+        _bind_scroll(widget, self._content_canvas)
+        for child in widget.winfo_children():
+            self._bind_scroll_recursive(child)
 
     def _render_section(self, section_name, params, data, discovered=False):
         """Render a section. Returns True if any params were shown."""
