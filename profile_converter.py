@@ -439,15 +439,16 @@ _IDENTITY_KEYS = {
 # Keys that strongly indicate a filament profile
 _FILAMENT_SIGNAL_KEYS = frozenset({
     "filament_type", "nozzle_temperature", "filament_flow_ratio",
-    "fan_min_speed", "filament_retraction_length",
-    "nozzle_temperature_initial_layer", "cool_plate_temp",
-    "filament_max_volumetric_speed",
+    "fan_min_speed", "fan_max_speed", "filament_retraction_length",
+    "nozzle_temperature_initial_layer", "cool_plate_temp", "hot_plate_temp",
+    "filament_max_volumetric_speed", "filament_density", "filament_colour",
+    "filament_vendor", "filament_cost",
 })
 
 # Keys that strongly indicate a process/print profile
 _PROCESS_SIGNAL_KEYS = frozenset({
     "layer_height", "wall_loops", "sparse_infill_density",
-    "support_type", "print_speed", "hot_plate_temp",
+    "support_type", "print_speed",
 })
 
 # Keys that identify any profile data (either type)
@@ -2603,10 +2604,7 @@ class ProfileListPanel(tk.Frame):
         self.tree.bind("<Double-1>", self._on_double_click_rename)
 
         # ── Treeview hover tooltip (shows full name + double-click hint) ──
-        self._tree_tip = None
-        self._tree_tip_after = None
-        self.tree.bind("<Motion>", self._on_tree_motion)
-        self.tree.bind("<Leave>", self._on_tree_leave)
+        self._setup_tree_tooltip()
 
         # ── Right-click context menu ──
         if platform.system() == "Darwin":
@@ -2658,6 +2656,13 @@ class ProfileListPanel(tk.Frame):
 
         # Register filter trace now that tree exists
         self._filter_var.trace_add("write", lambda *a: self._refresh_list())
+
+    def _setup_tree_tooltip(self):
+        """Set up hover tooltip on treeview rows."""
+        self._tree_tip = None
+        self._tree_tip_after = None
+        self.tree.bind("<Motion>", self._on_tree_motion)
+        self.tree.bind("<Leave>", self._on_tree_leave)
 
     def _filter_in(self, e):
         if self._placeholder:
