@@ -1387,15 +1387,21 @@ class ProfileEngine:
 
     @staticmethod
     def _pv(s):
-        """Parse a value string to its Python type."""
+        """Parse a config value string to its Python type.
+        Only coerces strings that are entirely numeric — preserves hex colors,
+        G-code snippets, version strings, and other non-numeric data."""
         if not isinstance(s, str):
             return s
-        if s.lower() in ("true", "false"):
-            return s.lower() == "true"
-        try:
-            return float(s) if "." in s else int(s)
-        except ValueError:
-            pass
+        sl = s.lower()
+        if sl in ("true", "false"):
+            return sl == "true"
+        # Only attempt numeric coercion if the string looks purely numeric.
+        # A string with spaces, '#', or multiple dots is not a plain number.
+        if " " not in s and not s.startswith("#"):
+            try:
+                return float(s) if "." in s else int(s)
+            except ValueError:
+                pass
         if s.startswith(("[", "{")):
             try:
                 return json.loads(s)
