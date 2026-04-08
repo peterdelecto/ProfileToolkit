@@ -47,6 +47,7 @@ _TREE_TOOLTIP_DELAY_MS = 600
 _VALUE_TRUNCATE_SHORT = 40   # CompareDialog._fmt
 _VALUE_TRUNCATE_LONG = 80    # ProfileDetailPanel._format_value
 _LABEL_COL_WIDTH = 220       # ProfileDetailPanel two-column grid
+_TOOLTIP_BORDER_COLOR = "#555555"  # _Tooltip border — not theme-dependent
 
 
 # --- BambuStudio UI Layout Definitions ---
@@ -859,6 +860,8 @@ class Theme:
         self.section_bg = "#222222"
         self.param_bg = "#242424"   # Slightly lighter than bg2 for param content area
         self.edit_bg = "#2a2a2a"    # Subtle bg for editable value fields
+        self.placeholder_fg = "#888888"  # Placeholder text in filter/entry fields
+        self.convert_all_bg = "#282828"  # "Convert All" button — darker than btn_bg
 
 
 # --- Profile Data Model ---
@@ -1457,7 +1460,7 @@ class _Tooltip:
         tw.wm_geometry(f"+{x}+{y}")
         lbl = tk.Label(tw, text=self.text, bg="#333333", fg="#ededed",
                        font=(UI_FONT, 11), padx=8, pady=4, relief="solid", bd=1,
-                       borderwidth=1, highlightbackground="#555555")
+                       borderwidth=1, highlightbackground=_TOOLTIP_BORDER_COLOR)
         lbl.pack()
 
     def update_text(self, text):
@@ -2197,7 +2200,7 @@ class ProfileDetailPanel(tk.Frame):
         sh.pack(fill="x", padx=10, pady=(10, 3))
         accent_bar = tk.Frame(sh, bg=t.warning if discovered else t.accent, width=3)
         accent_bar.pack(side="left", fill="y", padx=(0, 8))
-        fg = t.warning if discovered else "#ffffff"
+        fg = t.warning if discovered else t.btn_fg
         tk.Label(sh, text=section_name, bg=t.param_bg, fg=fg,
                  font=(UI_FONT, 15, "bold")).pack(side="left")
 
@@ -2557,7 +2560,7 @@ class ProfileListPanel(tk.Frame):
                                 font=(UI_FONT, 13), relief="flat", bd=0)
         self._filter.pack(side="left", fill="x", expand=True, ipady=4)
         self._filter.insert(0, "Filter...")
-        self._filter.configure(fg="#888888", font=(UI_FONT, 13, "italic"))
+        self._filter.configure(fg=t.placeholder_fg, font=(UI_FONT, 13, "italic"))
         self._filter.bind("<FocusIn>", self._filter_in)
         self._filter.bind("<FocusOut>", self._filter_out)
         self._placeholder = True
@@ -2606,7 +2609,7 @@ class ProfileListPanel(tk.Frame):
         self.tree.tag_configure("status_locked", foreground=t.locked)
         self.tree.tag_configure("status_converted", foreground=t.converted)
         self.tree.tag_configure("group_header", background=t.bg,
-                                 foreground="#ffffff", font=(UI_FONT, 11, "bold"))
+                                 foreground=t.btn_fg, font=(UI_FONT, 11, "bold"))
         self._collapsed_groups = set()  # Track which groups are collapsed
 
         ts = ttk.Scrollbar(tf, orient="vertical", command=self.tree.yview)
@@ -2643,11 +2646,11 @@ class ProfileListPanel(tk.Frame):
                   font=(UI_FONT, 10), padx=6, pady=3).pack(side="left", padx=(0, 3))
         _make_btn(action_row1, "Show Folder",
                   lambda: self.app._on_show_folder(),
-                  bg=t.bg4, fg="#ffffff",
+                  bg=t.bg4, fg=t.btn_fg,
                   font=(UI_FONT, 10), padx=6, pady=3).pack(side="right", padx=(0, 3))
         _make_btn(action_row1, "Compare",
                   lambda: self.app._on_compare(),
-                  bg=t.bg4, fg="#ffffff",
+                  bg=t.bg4, fg=t.btn_fg,
                   font=(UI_FONT, 10), padx=6, pady=3).pack(side="right", padx=(0, 3))
 
         # Thin separator between secondary and primary actions
@@ -2663,7 +2666,7 @@ class ProfileListPanel(tk.Frame):
                   padx=8, pady=4).pack(side="right", padx=(0, 4))
         _make_btn(action_row2, "Convert All",
                   lambda: self.app._on_convert_all(),
-                  bg="#282828", fg="#ffffff",
+                  bg=t.convert_all_bg, fg=t.btn_fg,
                   font=(UI_FONT, 11, "bold"), padx=8, pady=4).pack(side="right", padx=(0, 4))
 
         # ── Right: detail panel ──
@@ -2682,7 +2685,7 @@ class ProfileListPanel(tk.Frame):
     def _filter_out(self, e):
         if not self._filter_var.get():
             self._filter.insert(0, "Filter...")
-            self._filter.configure(fg="#888888", font=(UI_FONT, 13, "italic"))
+            self._filter.configure(fg=self.theme.placeholder_fg, font=(UI_FONT, 13, "italic"))
             self._placeholder = True
 
     def _on_group_change(self, event=None):
@@ -3208,7 +3211,7 @@ class App(tk.Tk):
 
         self._filament_tab = _make_btn(tab_frame, "  Filament  ",
                   lambda: self._switch_tab("filament"),
-                  bg=t.bg4, fg="#ffffff",
+                  bg=t.bg4, fg=t.btn_fg,
                   font=(UI_FONT, 13), padx=14, pady=6)
         self._filament_tab.pack(side="left")
 
@@ -3221,17 +3224,17 @@ class App(tk.Tk):
 
         _make_btn(toolbar, "Import (JSON, 3MF)",
                   self._on_import,
-                  bg=t.bg4, fg="#ffffff", font=btn_font,
+                  bg=t.bg4, fg=t.btn_fg, font=btn_font,
                   padx=btn_pad, pady=5).pack(side="left", padx=(0, 4))
 
         _make_btn(toolbar, "Load System Presets",
                   self._on_load_presets,
-                  bg=t.bg4, fg="#ffffff", font=btn_font,
+                  bg=t.bg4, fg=t.btn_fg, font=btn_font,
                   padx=btn_pad, pady=5).pack(side="left", padx=(0, 4))
 
         _make_btn(toolbar, "Export",
                   self._on_export,
-                  bg=t.bg4, fg="#ffffff", font=btn_font,
+                  bg=t.bg4, fg=t.btn_fg, font=btn_font,
                   padx=btn_pad, pady=5).pack(side="right", padx=(0, 4))
 
         # ── Content area: stacked frames (manual tab switching) ──
@@ -3255,14 +3258,14 @@ class App(tk.Tk):
             self.process_panel.pack(fill="both", expand=True)
             self._process_tab.configure(bg=t.accent2, fg=t.accent_fg,
                                          font=(UI_FONT, 13, "bold"))
-            self._filament_tab.configure(bg=t.bg4, fg="#ffffff",
+            self._filament_tab.configure(bg=t.bg4, fg=t.btn_fg,
                                           font=(UI_FONT, 13))
         else:
             self.process_panel.pack_forget()
             self.filament_panel.pack(fill="both", expand=True)
             self._filament_tab.configure(bg=t.accent2, fg=t.accent_fg,
                                           font=(UI_FONT, 13, "bold"))
-            self._process_tab.configure(bg=t.bg4, fg="#ffffff",
+            self._process_tab.configure(bg=t.bg4, fg=t.btn_fg,
                                          font=(UI_FONT, 13))
         self._current_tab = tab_name
 
@@ -3561,7 +3564,7 @@ class App(tk.Tk):
                   bg=t.accent2, fg=t.accent_fg,
                   font=(UI_FONT, 10, "bold"), padx=12, pady=4).pack(side="right")
         _make_btn(btn_row, "Cancel", on_cancel,
-                  bg=t.bg4, fg="#ffffff",
+                  bg=t.bg4, fg=t.btn_fg,
                   font=(UI_FONT, 10), padx=8, pady=4).pack(side="right", padx=(0, 4))
 
         entry.bind("<Return>", on_ok)
