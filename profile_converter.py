@@ -436,6 +436,25 @@ _IDENTITY_KEYS = {
     "instantiation", "user_id", "updated_time",
 }
 
+# Keys that strongly indicate a filament profile
+_FILAMENT_SIGNAL_KEYS = frozenset({
+    "filament_type", "nozzle_temperature", "filament_flow_ratio",
+    "fan_min_speed", "filament_retraction_length",
+    "nozzle_temperature_initial_layer", "cool_plate_temp",
+    "filament_max_volumetric_speed",
+})
+
+# Keys that strongly indicate a process/print profile
+_PROCESS_SIGNAL_KEYS = frozenset({
+    "layer_height", "wall_loops", "sparse_infill_density",
+    "support_type", "print_speed", "hot_plate_temp",
+})
+
+# Keys that identify any profile data (either type)
+_PROFILE_SIGNAL_KEYS = _FILAMENT_SIGNAL_KEYS | _PROCESS_SIGNAL_KEYS | frozenset({
+    "compatible_printers", "inherits", "from",
+})
+
 
 # --- Enum Parameter Definitions ---
 # Each key maps to a list of (json_value, human_label) tuples.
@@ -920,15 +939,8 @@ class Profile:
 
         # 3. Heuristic: guess from keys present
         keys = set(self.data.keys())
-        filament_signals = keys & {"filament_type", "nozzle_temperature", "filament_flow_ratio",
-                                    "filament_density", "fan_min_speed", "fan_max_speed",
-                                    "filament_retraction_length", "filament_max_volumetric_speed",
-                                    "hot_plate_temp", "cool_plate_temp", "filament_cost",
-                                    "filament_vendor", "filament_colour"}
-        process_signals = keys & {"layer_height", "wall_loops", "sparse_infill_density",
-                                   "outer_wall_speed", "inner_wall_speed", "enable_support",
-                                   "default_acceleration", "seam_position", "line_width",
-                                   "top_shell_layers", "bottom_shell_layers"}
+        filament_signals = keys & _FILAMENT_SIGNAL_KEYS
+        process_signals = keys & _PROCESS_SIGNAL_KEYS
 
         if len(filament_signals) > len(process_signals):
             return "filament"
@@ -1180,16 +1192,6 @@ class ProfileEngine:
                     if ProfileEngine._is_profile_data(item):
                         # Infer type from keys/fields if not set
                         if "type" not in item:
-                            filament_signals = {"filament_type", "nozzle_temperature",
-                                                "filament_flow_ratio", "filament_density",
-                                                "fan_min_speed", "filament_retraction_length",
-                                                "filament_settings_id", "filament_max_volumetric_speed",
-                                                "hot_plate_temp", "cool_plate_temp"}
-                            process_signals = {"layer_height", "wall_loops",
-                                               "sparse_infill_density", "outer_wall_speed",
-                                               "inner_wall_speed", "enable_support",
-                                               "default_acceleration", "seam_position",
-                                               "line_width", "top_shell_layers"}
                             # Use name hint: filament_settings_* → filament,
                             # project_settings / process_settings → process
                             item_name = item.get("name", "")
@@ -1197,7 +1199,7 @@ class ProfileEngine:
                                 item["type"] = "filament"
                             elif "project_settings" in item_name.lower():
                                 item["type"] = "process"
-                            elif len(item.keys() & filament_signals) > len(item.keys() & process_signals):
+                            elif len(item.keys() & _FILAMENT_SIGNAL_KEYS) > len(item.keys() & _PROCESS_SIGNAL_KEYS):
                                 item["type"] = "filament"
                             else:
                                 item["type"] = "process"
@@ -1322,13 +1324,7 @@ class ProfileEngine:
     @staticmethod
     def _is_profile_data(data: dict) -> bool:
         """Check if a dict looks like actual profile data (not just plate metadata)."""
-        profile_keys = {"filament_type", "nozzle_temperature", "layer_height",
-                        "hot_plate_temp", "filament_flow_ratio", "fan_min_speed",
-                        "compatible_printers", "wall_loops", "sparse_infill_density",
-                        "support_type", "filament_retraction_length", "print_speed",
-                        "nozzle_temperature_initial_layer", "cool_plate_temp",
-                        "filament_max_volumetric_speed", "inherits", "from"}
-        return bool(data.keys() & profile_keys)
+        return bool(data.keys() & _PROFILE_SIGNAL_KEYS)
 
     @staticmethod
     def _pv(s):
