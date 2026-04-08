@@ -2542,6 +2542,7 @@ class ProfileListPanel(tk.Frame):
         self._build()
 
     def _build_filter(self, parent) -> None:
+        """Build the filter row and group-by dropdown above the treeview."""
         theme = self.theme
 
         # ── Filter row ──
@@ -2584,6 +2585,7 @@ class ProfileListPanel(tk.Frame):
         group_cb.bind("<<ComboboxSelected>>", self._on_group_change)
 
     def _build_tree(self, parent) -> None:
+        """Build the treeview with scrollbar, columns, tags, and bindings."""
         theme = self.theme
 
         # ── Treeview (must exist before trace) ──
@@ -2628,6 +2630,7 @@ class ProfileListPanel(tk.Frame):
             self.tree.bind("<Button-3>", self._on_context_menu)
 
     def _build_actions(self, parent) -> None:
+        """Build action button rows below the treeview."""
         theme = self.theme
 
         # ── Action rows below treeview ──
