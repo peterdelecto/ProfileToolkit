@@ -414,7 +414,8 @@ for _tab_sections in FILAMENT_LAYOUT.values():
         for _key, _label in _params:
             _ALL_FILAMENT_KEYS.add(_key)
 
-# Identity / meta keys that we never show as parameters
+# Identity/meta keys: profile bookkeeping fields shown in the header,
+# not as editable parameters. Excluded from tab layout and diff views.
 _IDENTITY_KEYS = {
     "name", "type", "inherits", "from", "setting_id",
     "compatible_printers", "compatible_printers_condition",
@@ -1319,6 +1320,8 @@ class ProfileEngine:
         """Parse a config value string to its Python type.
         Only coerces strings that are entirely numeric — preserves hex colors,
         G-code snippets, version strings, and other non-numeric data."""
+        # Coercion order: bool → numeric (if purely numeric) → JSON collection → str.
+        # Called only for INI-style config values, not for JSON-parsed data.
         if not isinstance(s, str):
             return s
         sl = s.lower()
@@ -2194,6 +2197,8 @@ class ProfileDetailPanel(tk.Frame):
 
     def _get_raw_enum_str(self, value):
         """Extract the raw string for enum lookup, unwrapping single-element lists."""
+        # BambuStudio stores per-extruder enum arrays where all elements are identical.
+        # Unwrap to a single string for enum lookup when the array is uniform.
         if isinstance(value, list):
             unique = list(dict.fromkeys(str(v) for v in value))
             if len(unique) == 1:
@@ -3605,7 +3610,7 @@ class App(tk.Tk):
                                 f"Source folder not found:\n{folder}")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# --- Entry Point ---
 if __name__ == "__main__":
     app = App()
     app.mainloop()
