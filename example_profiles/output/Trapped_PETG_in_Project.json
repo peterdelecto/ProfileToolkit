@@ -1,0 +1,8 @@
+{
+    "type": "filament",
+    "name": "Trapped PETG in Project",
+    "filament_type": "PETG",
+    "nozzle_temperature": 245,
+    "bed_temperature": 80,
+    "compatible_printers": []
+}

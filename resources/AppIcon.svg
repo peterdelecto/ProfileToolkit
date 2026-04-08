@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a73e8"/>
+      <stop offset="100%" style="stop-color:#0d47a1"/>
+    </linearGradient>
+    <linearGradient id="printer" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff"/>
+      <stop offset="100%" style="stop-color:#e0e0e0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded square background -->
+  <rect x="32" y="32" width="960" height="960" rx="180" ry="180" fill="url(#bg)"/>
+
+  <!-- 3D Printer body (simplified) -->
+  <g transform="translate(512, 460)">
+    <!-- Base/bed -->
+    <rect x="-220" y="80" width="440" height="40" rx="8" fill="url(#printer)" opacity="0.95"/>
+
+    <!-- Frame uprights -->
+    <rect x="-200" y="-200" width="24" height="280" rx="4" fill="#ffffff" opacity="0.9"/>
+    <rect x="176" y="-200" width="24" height="280" rx="4" fill="#ffffff" opacity="0.9"/>
+
+    <!-- Top bar -->
+    <rect x="-200" y="-200" width="400" height="24" rx="4" fill="#ffffff" opacity="0.9"/>
+
+    <!-- Print head -->
+    <rect x="-40" y="-120" width="80" height="60" rx="8" fill="#ffb74d"/>
+    <rect x="-8" y="-60" width="16" height="24" rx="2" fill="#ff8f00"/>
+
+    <!-- Printed object on bed (small cube) -->
+    <g transform="translate(0, 40)">
+      <rect x="-30" y="-30" width="60" height="40" rx="2" fill="#4fc3f7" opacity="0.9"/>
+    </g>
+  </g>
+
+  <!-- Unlock icon (bottom right) -->
+  <g transform="translate(720, 700)">
+    <circle cx="0" cy="0" r="100" fill="#ffffff" opacity="0.2"/>
+    <!-- Lock body -->
+    <rect x="-40" y="-10" width="80" height="60" rx="10" fill="#81c784"/>
+    <!-- Shackle (open) -->
+    <path d="M -20,-10 L -20,-35 A 20,20 0 0 1 20,-35" fill="none" stroke="#81c784" stroke-width="12" stroke-linecap="round"/>
+    <!-- Keyhole -->
+    <circle cx="0" cy="18" r="10" fill="#ffffff"/>
+    <rect x="-4" y="18" width="8" height="16" rx="2" fill="#ffffff"/>
+  </g>
+</svg>
