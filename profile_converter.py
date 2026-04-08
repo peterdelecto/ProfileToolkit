@@ -1126,17 +1126,6 @@ class Profile:
         name = re.sub(r'\s+', '_', name.strip())
         return f"{name or 'profile'}.json"
 
-    def get_unrecognized_keys(self):
-        """Return data keys not in the layout and not identity/meta keys."""
-        layout = FILAMENT_LAYOUT if self.profile_type == "filament" else PROCESS_LAYOUT
-        known = set()
-        for sections in layout.values():
-            for params in sections.values():
-                for k, _ in params:
-                    known.add(k)
-        known.update(_IDENTITY_KEYS)
-        return {k: v for k, v in self.data.items() if k not in known}
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Profile Engine
