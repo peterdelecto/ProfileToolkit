@@ -1985,27 +1985,12 @@ class ProfileDetailPanel(tk.Frame):
             self._switch_tab(self._current_tab)
         return "break"
 
-    def show_profile(self, profile):
-        self._commit_edits()  # Save any pending edits from previous profile
-        self.current_profile = profile
-        self._edit_vars = {}
-        self._undo_stack = []  # Reset undo stack for new profile
-        self._pre_edit_modified = None
-        self._param_order = []
-        for w in self.winfo_children():
-            w.destroy()
-
+    def _build_header(self, profile) -> tk.Frame:
+        """Build and pack the profile name/status header. Returns the header frame."""
         theme = self.theme
-        layout = FILAMENT_LAYOUT if profile.profile_type == "filament" else PROCESS_LAYOUT
-
-        # Determine which data dict to use for display
-        # If resolved_data exists (inheritance resolved), show everything
-        self._display_data = profile.resolved_data if profile.resolved_data else profile.data
-        self._inherited_keys = profile.inherited_keys if profile.inherited_keys else set()
 
         # ── Header (compact: 3 rows max) ──
         header_frame = tk.Frame(self, bg=theme.bg2)
-        self._header_frame = header_frame
         header_frame.pack(fill="x", padx=10, pady=(6, 0))
 
         # Row 1: profile name with type prefix (double-click to rename)
@@ -2078,6 +2063,12 @@ class ProfileDetailPanel(tk.Frame):
         tk.Label(header_frame, text=" \u00b7 ".join(count_parts), bg=theme.bg2, fg=theme.fg2,
                  font=(UI_FONT, 12)).pack(anchor="w", pady=(1, 0))
 
+        return header_frame
+
+    def _build_tab_bar(self, layout: dict) -> list:
+        """Build and pack the tab bar. Returns list of tab names."""
+        theme = self.theme
+
         # ── Sub-tab bar ──
         tab_bar = tk.Frame(self, bg=theme.bg2)
         tab_bar.pack(fill="x", padx=10, pady=(6, 0))
@@ -2096,6 +2087,12 @@ class ProfileDetailPanel(tk.Frame):
 
         # Separator below tabs
         tk.Frame(self, bg=theme.border, height=1).pack(fill="x", padx=8, pady=(2, 0))
+
+        return tab_names
+
+    def _build_content_area(self) -> None:
+        """Build the scrollable canvas and content frame."""
+        theme = self.theme
 
         # ── Content area ──
         content_container = tk.Frame(self, bg=theme.param_bg)
@@ -2120,6 +2117,27 @@ class ProfileDetailPanel(tk.Frame):
         # Scroll binding — bind to canvas and also recursively bind to content
         # frame children after each tab switch (see _bind_scroll_recursive)
         _bind_scroll(self._content_canvas, self._content_canvas)
+
+    def show_profile(self, profile):
+        self._commit_edits()  # Save any pending edits from previous profile
+        self.current_profile = profile
+        self._edit_vars = {}
+        self._undo_stack = []  # Reset undo stack for new profile
+        self._pre_edit_modified = None
+        self._param_order = []
+        for w in self.winfo_children():
+            w.destroy()
+
+        layout = FILAMENT_LAYOUT if profile.profile_type == "filament" else PROCESS_LAYOUT
+
+        # Determine which data dict to use for display
+        # If resolved_data exists (inheritance resolved), show everything
+        self._display_data = profile.resolved_data if profile.resolved_data else profile.data
+        self._inherited_keys = profile.inherited_keys if profile.inherited_keys else set()
+
+        self._header_frame = self._build_header(profile)
+        tab_names = self._build_tab_bar(layout)
+        self._build_content_area()
 
         if tab_names:
             self._switch_tab(tab_names[0])
