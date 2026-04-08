@@ -3373,21 +3373,6 @@ class App(tk.Tk):
             status += f" Resolved inheritance for {resolved_count}."
         self._update_status(status)
 
-    def _on_import_slicer(self, name, path):
-        """Import from detected slicer — no confirmation, just import."""
-        presets = SlicerDetector.find_user_presets(path)
-        pairs = []
-        for ptype, files in presets.items():
-            for fp in files:
-                pairs.append((fp, ptype))  # Pass directory type as hint
-
-        if not pairs:
-            self._update_status(f"No user presets found in {name}.")
-            return
-
-        self._load_files(pairs)
-        self._update_status(f"Imported {len(pairs)} preset(s) from {name}.")
-
     def _on_convert(self):
         panel = self._active_panel()
         selected = panel.get_selected_profiles()
