@@ -134,6 +134,31 @@ def test_pv_preserves_gcode_string():
     assert ProfileEngine._pv(gcode) == gcode
 
 
+def test_format_value_humanizes_known_enum_label():
+    """_format_value with a known enum key should return the human label, not the JSON value."""
+    # seam_position: "nearest" → "Nearest" in ENUM_VALUES
+    result = pc.ProfileDetailPanel._format_value("nearest", key="seam_position")
+    assert result == "Nearest", f"Expected 'Nearest', got {result!r}"
+
+
+def test_enum_label_to_json_round_trip():
+    """_ENUM_LABEL_TO_JSON must map human label back to raw JSON value for known enums.
+    This tests the fix that prevents unknown-enum-value corruption: when the user
+    selects 'Arachne' from the dropdown, the stored value must be 'arachne' (raw JSON),
+    not 'Arachne' (display label).
+    """
+    label_to_json = pc._ENUM_LABEL_TO_JSON
+    # wall_generator: "arachne" → "Arachne" forward, "Arachne" → "arachne" reverse
+    assert "wall_generator" in label_to_json, "wall_generator must have reverse lookup"
+    assert label_to_json["wall_generator"].get("Arachne") == "arachne", (
+        "Reverse lookup 'Arachne' → 'arachne' must be correct"
+    )
+    assert label_to_json["wall_generator"].get("Classic") == "classic"
+    # seam_position
+    assert label_to_json["seam_position"].get("Nearest") == "nearest"
+    assert label_to_json["seam_position"].get("Aligned") == "aligned"
+
+
 if __name__ == "__main__":
     import pytest
     pytest.main([__file__, "-v"])

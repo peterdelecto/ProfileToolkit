@@ -426,6 +426,7 @@ for _tab_sections in FILAMENT_LAYOUT.values():
     for _params in _tab_sections.values():
         for _key, _label in _params:
             _ALL_FILAMENT_KEYS.add(_key)
+del _tab_sections, _params, _key, _label
 
 # Identity/meta keys: profile bookkeeping fields shown in the header,
 # not as editable parameters. Excluded from tab layout and diff views.
