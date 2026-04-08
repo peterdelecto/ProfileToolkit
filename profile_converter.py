@@ -1173,116 +1173,135 @@ class ProfileEngine:
         return unique
 
     @staticmethod
+    def _parse_config_json(content: str, source_path: str) -> list:
+        """Parse JSON-format config content (BambuStudio .config style)."""
+        profiles = []
+        try:
+            data = json.loads(content)
+            items = [data] if isinstance(data, dict) else (
+                [d for d in data if isinstance(d, dict)] if isinstance(data, list) else []
+            )
+            for item in items:
+                if ProfileEngine._is_profile_data(item):
+                    # Infer type from keys/fields if not set
+                    if "type" not in item:
+                        # Use name hint: filament_settings_* → filament,
+                        # project_settings / process_settings → process
+                        item_name = item.get("name", "")
+                        if "filament_settings" in item_name.lower():
+                            item["type"] = "filament"
+                        elif "project_settings" in item_name.lower():
+                            item["type"] = "process"
+                        elif len(item.keys() & _FILAMENT_SIGNAL_KEYS) > len(item.keys() & _PROCESS_SIGNAL_KEYS):
+                            item["type"] = "filament"
+                        else:
+                            item["type"] = "process"
+                    # Derive a descriptive name
+                    raw_name = item.get("name", "")
+                    basename = os.path.splitext(os.path.basename(source_path))[0]
+                    # "project_settings" is generic — replace with source filename
+                    if not raw_name or raw_name in ("project_settings", ""):
+                        if item.get("type") == "process":
+                            item["name"] = f"Project Settings ({basename})"
+                        else:
+                            sid = item.get("filament_settings_id") or item.get("setting_id")
+                            if isinstance(sid, list):
+                                sid = sid[0] if sid else None
+                            if sid and sid != "nil":
+                                item["name"] = sid
+                            else:
+                                item["name"] = f"Extracted profile ({basename})"
+                    profiles.append(Profile(item, source_path, "3mf"))
+        except (json.JSONDecodeError, ValueError):
+            pass  # Not valid JSON — fall through to XML/INI parsers
+        return profiles
+
+    @staticmethod
+    def _parse_config_xml(content: str, source_path: str) -> list:
+        """Parse XML-format config content. Raises ET.ParseError if not valid XML."""
+        profiles = []
+        root = ET.fromstring(content)
+        # Walk ALL elements — real .3mf files may nest profiles in
+        # <plate>, <config>, or other containers.
+        # We look for: <filament>, <print>, <process> tags with metadata children
+        # Also handle <plate> containers that CONTAIN filament/print children
+        for elem in root.iter():
+            tag_lower = elem.tag.lower().split("}")[-1]  # strip namespace
+
+            # Direct profile elements
+            if tag_lower in ("filament", "print", "process"):
+                data = ProfileEngine._extract_xml_profile(elem)
+                if data and ProfileEngine._is_profile_data(data):
+                    if "type" not in data:
+                        data["type"] = "filament" if (
+                            "filament_type" in data or tag_lower == "filament"
+                        ) else "process"
+                    if "name" not in data:
+                        ft = data.get("filament_type", "Unknown")
+                        if isinstance(ft, list):
+                            ft = ft[0] if ft else "Unknown"
+                        data["name"] = f"Extracted {ft} profile"
+                    profiles.append(Profile(data, source_path, "3mf"))
+
+            # <plate> containers: skip the plate itself, children handled above
+            # But also check for flat key-value configs inside plate
+            elif tag_lower == "plate":
+                # Don't create a profile from the plate metadata itself
+                pass
+
+            # Handle <object> or other containers with setting child elements
+            elif tag_lower in ("settings", "object_settings"):
+                data = ProfileEngine._extract_xml_profile(elem)
+                if data and ProfileEngine._is_profile_data(data):
+                    profiles.append(Profile(data, source_path, "3mf"))
+
+        return profiles
+
+    @staticmethod
+    def _parse_config_ini(content: str, source_path: str) -> list:
+        """Parse INI-style [section:name] key=value config content."""
+        profiles = []
+        current = {}
+        current_name = None
+        for line in content.splitlines():
+            line = line.strip()
+            m = re.match(r'^\[(\w+)(?::(.+))?\]$', line)
+            if m:
+                if current and current_name and ProfileEngine._is_profile_data(current):
+                    current["name"] = current_name
+                    profiles.append(Profile(current, source_path, "3mf"))
+                current = {"type": m.group(1)}
+                current_name = m.group(2) or m.group(1)
+                continue
+            kv = re.match(r'^(\S+)\s*=\s*(.+)$', line)
+            if kv:
+                current[kv.group(1)] = ProfileEngine._pv(kv.group(2).strip())
+        if current and current_name and ProfileEngine._is_profile_data(current):
+            current["name"] = current_name
+            profiles.append(Profile(current, source_path, "3mf"))
+        return profiles
+
+    @staticmethod
     def _parse_config(content: str, source_path: str) -> list:
         """Parse config content from .3mf metadata files.
-        Handles multiple formats: JSON (BambuStudio .config), XML with
-        <metadata> children, XML with direct attributes, and INI-style
-        key=value sections.
+        Dispatches to format-specific sub-parsers based on content type.
+        Handles: JSON (BambuStudio .config), XML with <metadata>/<setting> children,
+        INI-style [section:name] key=value, and flat key=value fallback.
         """
-        profiles = []
+        stripped = content.strip()
 
         # BambuStudio stores .config files as JSON — detect and handle first
-        stripped = content.strip()
         if stripped.startswith("{") or stripped.startswith("["):
-            try:
-                data = json.loads(content)
-                items = [data] if isinstance(data, dict) else (
-                    [d for d in data if isinstance(d, dict)] if isinstance(data, list) else []
-                )
-                for item in items:
-                    if ProfileEngine._is_profile_data(item):
-                        # Infer type from keys/fields if not set
-                        if "type" not in item:
-                            # Use name hint: filament_settings_* → filament,
-                            # project_settings / process_settings → process
-                            item_name = item.get("name", "")
-                            if "filament_settings" in item_name.lower():
-                                item["type"] = "filament"
-                            elif "project_settings" in item_name.lower():
-                                item["type"] = "process"
-                            elif len(item.keys() & _FILAMENT_SIGNAL_KEYS) > len(item.keys() & _PROCESS_SIGNAL_KEYS):
-                                item["type"] = "filament"
-                            else:
-                                item["type"] = "process"
-                        # Derive a descriptive name
-                        raw_name = item.get("name", "")
-                        basename = os.path.splitext(os.path.basename(source_path))[0]
-                        # "project_settings" is generic — replace with source filename
-                        if not raw_name or raw_name in ("project_settings", ""):
-                            if item.get("type") == "process":
-                                item["name"] = f"Project Settings ({basename})"
-                            else:
-                                sid = item.get("filament_settings_id") or item.get("setting_id")
-                                if isinstance(sid, list):
-                                    sid = sid[0] if sid else None
-                                if sid and sid != "nil":
-                                    item["name"] = sid
-                                else:
-                                    item["name"] = f"Extracted profile ({basename})"
-                        profiles.append(Profile(item, source_path, "3mf"))
-                return profiles
-            except (json.JSONDecodeError, ValueError):
-                pass  # Not valid JSON — fall through to XML/INI parsers
+            return ProfileEngine._parse_config_json(content, source_path)
 
         try:
-            root = ET.fromstring(content)
-            # Walk ALL elements — real .3mf files may nest profiles in
-            # <plate>, <config>, or other containers.
-            # We look for: <filament>, <print>, <process> tags with metadata children
-            # Also handle <plate> containers that CONTAIN filament/print children
-            for elem in root.iter():
-                tag_lower = elem.tag.lower().split("}")[-1]  # strip namespace
-
-                # Direct profile elements
-                if tag_lower in ("filament", "print", "process"):
-                    data = ProfileEngine._extract_xml_profile(elem)
-                    if data and ProfileEngine._is_profile_data(data):
-                        if "type" not in data:
-                            data["type"] = "filament" if (
-                                "filament_type" in data or tag_lower == "filament"
-                            ) else "process"
-                        if "name" not in data:
-                            ft = data.get("filament_type", "Unknown")
-                            if isinstance(ft, list):
-                                ft = ft[0] if ft else "Unknown"
-                            data["name"] = f"Extracted {ft} profile"
-                        profiles.append(Profile(data, source_path, "3mf"))
-
-                # <plate> containers: skip the plate itself, children handled above
-                # But also check for flat key-value configs inside plate
-                elif tag_lower == "plate":
-                    # Don't create a profile from the plate metadata itself
-                    pass
-
-                # Handle <object> or other containers with setting child elements
-                elif tag_lower in ("settings", "object_settings"):
-                    data = ProfileEngine._extract_xml_profile(elem)
-                    if data and ProfileEngine._is_profile_data(data):
-                        profiles.append(Profile(data, source_path, "3mf"))
-
+            profiles = ProfileEngine._parse_config_xml(content, source_path)
         except ET.ParseError:
-            # Fallback: parse INI-style [section:name] format
-            current = {}
-            current_name = None
-            for line in content.splitlines():
-                line = line.strip()
-                m = re.match(r'^\[(\w+)(?::(.+))?\]$', line)
-                if m:
-                    if current and current_name and ProfileEngine._is_profile_data(current):
-                        current["name"] = current_name
-                        profiles.append(Profile(current, source_path, "3mf"))
-                    current = {"type": m.group(1)}
-                    current_name = m.group(2) or m.group(1)
-                    continue
-                kv = re.match(r'^(\S+)\s*=\s*(.+)$', line)
-                if kv:
-                    current[kv.group(1)] = ProfileEngine._pv(kv.group(2).strip())
-            if current and current_name and ProfileEngine._is_profile_data(current):
-                current["name"] = current_name
-                profiles.append(Profile(current, source_path, "3mf"))
+            profiles = ProfileEngine._parse_config_ini(content, source_path)
 
-        # If no structured profiles found, try a flat key-value parse of entire content
-        if not profiles and "=" in content and not content.strip().startswith("<"):
+        # Flat key=value fallback: if no profiles found and content has assignments
+        # but isn't XML-like (no leading <), try treating the whole file as one profile
+        if not profiles and "=" in content and not stripped.startswith("<"):
             data = {}
             for line in content.splitlines():
                 line = line.strip()
@@ -2651,7 +2670,7 @@ class ProfileListPanel(tk.Frame):
                   font=(UI_FONT, 11, "bold"), padx=8, pady=4).pack(side="right", padx=(0, 4))
 
         # ── Right: detail panel ──
-        self.detail = ProfileDetailPanel(paned, t)
+        self.detail = ProfileDetailPanel(paned, theme)
         paned.add(self.detail, minsize=300)
 
         # Register filter trace now that tree exists
