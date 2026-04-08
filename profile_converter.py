@@ -1957,6 +1957,7 @@ class ProfileDetailPanel(tk.Frame):
         self._current_tab = None
         self._edit_vars = {}  # key -> (StringVar, original_value)
         self._undo_stack = []  # list of (key, old_value) for undo
+        self._pre_edit_modified = None  # snapshot of profile.modified before first edit
         self._param_order = []  # ordered list of (key, container, fg_color) for Tab nav
         self._show_placeholder()
 
@@ -2009,9 +2010,9 @@ class ProfileDetailPanel(tk.Frame):
             return "break"
         key, old_value = self._undo_stack.pop()
         self.current_profile.data[key] = old_value
-        # Check if any edits remain — if not, unmark modified
-        if not self._undo_stack:
-            self.current_profile.modified = False
+        if not self._undo_stack and self._pre_edit_modified is not None:
+            self.current_profile.modified = self._pre_edit_modified
+            self._pre_edit_modified = None
         # Re-render the current tab to show reverted value
         if self._current_tab:
             self._switch_tab(self._current_tab)
@@ -2022,6 +2023,7 @@ class ProfileDetailPanel(tk.Frame):
         self.current_profile = profile
         self._edit_vars = {}
         self._undo_stack = []  # Reset undo stack for new profile
+        self._pre_edit_modified = None
         self._param_order = []
         for w in self.winfo_children():
             w.destroy()
@@ -2360,6 +2362,8 @@ class ProfileDetailPanel(tk.Frame):
             else:
                 new_val = new_json_val
             if new_val != original_value:
+                if self._pre_edit_modified is None:
+                    self._pre_edit_modified = self.current_profile.modified
                 self._undo_stack.append((key, original_value))
                 self.current_profile.data[key] = new_val
                 self.current_profile.modified = True
@@ -2386,8 +2390,6 @@ class ProfileDetailPanel(tk.Frame):
         entry.select_range(0, "end")
 
         self._edit_vars[key] = (sv, original_value, "entry")
-        # Track for undo
-        self._undo_stack.append((key, original_value))
 
         def finish_edit(event=None):
             self._commit_single(key)
@@ -2439,6 +2441,9 @@ class ProfileDetailPanel(tk.Frame):
 
         new_val = self._parse_edit(new_str, original)
         if new_val != original:
+            if self._pre_edit_modified is None:
+                self._pre_edit_modified = self.current_profile.modified
+            self._undo_stack.append((key, original))
             self.current_profile.data[key] = new_val
             self.current_profile.modified = True
             self._edit_vars[key] = (var_or_widget, new_val, kind)
