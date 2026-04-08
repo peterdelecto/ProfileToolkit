@@ -1904,8 +1904,8 @@ class ProfileDetailPanel(tk.Frame):
         self._show_placeholder()
 
         # Bind Cmd+Z / Ctrl+Z for undo
-        mod = "Command" if platform.system() == "Darwin" else "Control"
-        parent.winfo_toplevel().bind(f"<{mod}-z>", self._on_undo)
+        mod_key = "Command" if platform.system() == "Darwin" else "Control"
+        parent.winfo_toplevel().bind(f"<{mod_key}-z>", self._on_undo)
 
     def _show_placeholder(self, text=None):
         for w in self.winfo_children():
@@ -3173,10 +3173,10 @@ class App(tk.Tk):
         menubar.add_cascade(label="Help", menu=help_menu)
 
         self.config(menu=menubar)
-        m = "Command" if platform.system() == "Darwin" else "Control"
-        self.bind(f"<{m}-o>", lambda e: self._on_import())
-        self.bind(f"<{m}-e>", lambda e: self._on_export())
-        self.bind(f"<{m}-a>", lambda e: self._on_select_all())
+        mod_key = "Command" if platform.system() == "Darwin" else "Control"
+        self.bind(f"<{mod_key}-o>", lambda e: self._on_import())
+        self.bind(f"<{mod_key}-e>", lambda e: self._on_export())
+        self.bind(f"<{mod_key}-a>", lambda e: self._on_select_all())
 
     def _build_ui(self):
         theme = self.theme
