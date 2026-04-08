@@ -2694,8 +2694,11 @@ class ProfileListPanel(tk.Frame):
         self.tree.bind("<Leave>", self._on_tree_leave)
 
         # ── Right-click context menu ──
-        rc_btn = "<Button-2>" if platform.system() == "Darwin" else "<Button-3>"
-        self.tree.bind(rc_btn, self._on_context_menu)
+        if platform.system() == "Darwin":
+            self.tree.bind("<Button-2>", self._on_context_menu)
+            self.tree.bind("<Control-Button-1>", self._on_context_menu)
+        else:
+            self.tree.bind("<Button-3>", self._on_context_menu)
 
         # ── Action rows below treeview ──
         # Row 1: secondary actions (left) + utility (right)
