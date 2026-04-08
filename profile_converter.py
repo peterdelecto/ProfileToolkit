@@ -1521,65 +1521,65 @@ class ExportDialog(tk.Toplevel):
         self.wait_window()
 
     def _build(self, count):
-        t = self.theme
+        theme = self.theme
         tk.Label(self, text=f"Export {count} profile{'s' if count != 1 else ''}",
-                 font=(UI_FONT, 14, "bold"), bg=t.bg, fg=t.fg).pack(pady=(16, 8), padx=20)
+                 font=(UI_FONT, 14, "bold"), bg=theme.bg, fg=theme.fg).pack(pady=(16, 8), padx=20)
 
         # Options frame
-        opts = tk.Frame(self, bg=t.bg)
+        opts = tk.Frame(self, bg=theme.bg)
         opts.pack(fill="x", padx=20, pady=8)
 
         self._flatten_var = tk.BooleanVar(value=False)
         cb = tk.Checkbutton(opts, text="Flatten inherited parameters (no inheritance)",
-                            variable=self._flatten_var, bg=t.bg, fg=t.fg,
-                            selectcolor=t.bg, activebackground=t.bg, activeforeground=t.fg,
+                            variable=self._flatten_var, bg=theme.bg, fg=theme.fg,
+                            selectcolor=theme.bg, activebackground=theme.bg, activeforeground=theme.fg,
                             indicatoron=True, offrelief="flat",
                             font=(UI_FONT, 11))
         cb.pack(anchor="w", padx=8, pady=4)
         tk.Label(opts, text="When checked, all inherited values are written\n"
                             "explicitly into the exported file. The profile\n"
                             "becomes fully self-contained with no dependencies.",
-                 bg=t.bg, fg=t.fg2, font=(UI_FONT, 10), justify="left").pack(anchor="w", padx=28)
+                 bg=theme.bg, fg=theme.fg2, font=(UI_FONT, 10), justify="left").pack(anchor="w", padx=28)
 
         # ── Quick-install slicer destinations ──
         if self._detected_slicers:
-            sep = tk.Frame(self, bg=t.border, height=1)
+            sep = tk.Frame(self, bg=theme.border, height=1)
             sep.pack(fill="x", padx=20, pady=(12, 0))
 
             tk.Label(self, text="Or install directly to a slicer's user preset folder:",
-                     font=(UI_FONT, 12), bg=t.bg, fg=t.fg2).pack(
+                     font=(UI_FONT, 12), bg=theme.bg, fg=theme.fg2).pack(
                          anchor="w", padx=20, pady=(10, 6))
 
-            slicer_row = tk.Frame(self, bg=t.bg)
+            slicer_row = tk.Frame(self, bg=theme.bg)
             slicer_row.pack(fill="x", padx=20, pady=(0, 4))
             for name, path in self._detected_slicers.items():
                 dest_dir = SlicerDetector.get_export_dir(path)
                 _make_btn(slicer_row, f"Install to {name}",
                           lambda n=name, p=path: self._install_to_slicer(n, p),
-                          bg=t.bg4, fg=t.fg,
+                          bg=theme.bg4, fg=theme.fg,
                           font=(UI_FONT, 11), padx=12, pady=5).pack(
                               side="left", padx=(0, 6))
             # Show the destination path for context
             if len(self._detected_slicers) == 1:
                 name, path = list(self._detected_slicers.items())[0]
                 dest = SlicerDetector.get_export_dir(path)
-                tk.Label(self, text=dest, bg=t.bg, fg=t.fg3,
+                tk.Label(self, text=dest, bg=theme.bg, fg=theme.fg3,
                          font=(UI_FONT, 9)).pack(anchor="w", padx=28, pady=(0, 4))
 
-            sep2 = tk.Frame(self, bg=t.border, height=1)
+            sep2 = tk.Frame(self, bg=theme.border, height=1)
             sep2.pack(fill="x", padx=20, pady=(8, 0))
 
         # Buttons
-        bf = tk.Frame(self, bg=t.bg)
+        bf = tk.Frame(self, bg=theme.bg)
         bf.pack(fill="x", padx=20, pady=(12, 16))
 
         _make_btn(bf, "Export to File...",
                   self._ok,
-                  bg=t.accent2, fg=t.accent_fg,
+                  bg=theme.accent2, fg=theme.accent_fg,
                   font=(UI_FONT, 11, "bold"), padx=16, pady=5).pack(side="right", padx=(4, 0))
         _make_btn(bf, "Cancel",
                   self._cancel,
-                  bg=t.bg3, fg=t.fg3,
+                  bg=theme.bg3, fg=theme.fg3,
                   font=(UI_FONT, 11), padx=12, pady=5).pack(side="right")
 
     def _ok(self):
@@ -1613,32 +1613,32 @@ class ConvertDialog(tk.Toplevel):
         self.wait_window()
 
     def _build(self, count):
-        t = self.theme
+        theme = self.theme
         tk.Label(self, text=f"Convert {count} profile{'s' if count != 1 else ''}",
-                 font=(UI_FONT, 14, "bold"), bg=t.bg, fg=t.fg).pack(pady=(16, 8), padx=16)
+                 font=(UI_FONT, 14, "bold"), bg=theme.bg, fg=theme.fg).pack(pady=(16, 8), padx=16)
 
         self.mode = tk.StringVar(value="universal")
-        mf = tk.Frame(self, bg=t.bg)
+        mf = tk.Frame(self, bg=theme.bg)
         mf.pack(fill="x", padx=16, pady=8)
 
         tk.Radiobutton(mf, text="Make universal (compatible with all printers)",
-                       variable=self.mode, value="universal", bg=t.bg, fg=t.fg,
-                       selectcolor=t.bg3, activebackground=t.bg, activeforeground=t.fg,
+                       variable=self.mode, value="universal", bg=theme.bg, fg=theme.fg,
+                       selectcolor=theme.bg3, activebackground=theme.bg, activeforeground=theme.fg,
                        command=self._mode_changed).pack(anchor="w", padx=12, pady=6)
         tk.Radiobutton(mf, text="Assign to specific printers:",
-                       variable=self.mode, value="retarget", bg=t.bg, fg=t.fg,
-                       selectcolor=t.bg3, activebackground=t.bg, activeforeground=t.fg,
+                       variable=self.mode, value="retarget", bg=theme.bg, fg=theme.fg,
+                       selectcolor=theme.bg3, activebackground=theme.bg, activeforeground=theme.fg,
                        command=self._mode_changed).pack(anchor="w", padx=12, pady=6)
 
         # Printer checklist
-        self.pf = tk.Frame(self, bg=t.bg)
+        self.pf = tk.Frame(self, bg=theme.bg)
         self.pf.pack(fill="both", expand=True, padx=32, pady=(0, 8))
 
-        lf = tk.Frame(self.pf, bg=t.bg3, highlightbackground=t.border, highlightthickness=1)
+        lf = tk.Frame(self.pf, bg=theme.bg3, highlightbackground=theme.border, highlightthickness=1)
         lf.pack(fill="both", expand=True)
-        canvas = tk.Canvas(lf, bg=t.bg3, highlightthickness=0, width=380, height=200)
+        canvas = tk.Canvas(lf, bg=theme.bg3, highlightthickness=0, width=380, height=200)
         sb = tk.Scrollbar(lf, orient="vertical", command=canvas.yview)
-        self.cf = tk.Frame(canvas, bg=t.bg3)
+        self.cf = tk.Frame(canvas, bg=theme.bg3)
         self.cf.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.create_window((0, 0), window=self.cf, anchor="nw")
         canvas.configure(yscrollcommand=sb.set)
@@ -1648,29 +1648,29 @@ class ConvertDialog(tk.Toplevel):
         self.pvars = {}
         for brand, models in KNOWN_PRINTERS.items():
             tk.Label(self.cf, text=brand, font=(UI_FONT, 10, "bold"),
-                     bg=t.bg3, fg=t.fg2).pack(anchor="w", padx=8, pady=(8, 2))
+                     bg=theme.bg3, fg=theme.fg2).pack(anchor="w", padx=8, pady=(8, 2))
             for model in models:
                 for nz in NOZZLE_SIZES:
                     ps = f"{model} {nz} nozzle"
                     v = tk.BooleanVar(value=False)
                     self.pvars[ps] = v
-                    tk.Checkbutton(self.cf, text=ps, variable=v, bg=t.bg3, fg=t.fg,
-                                   selectcolor=t.bg4, activebackground=t.bg3,
-                                   activeforeground=t.fg).pack(anchor="w", padx=24)
+                    tk.Checkbutton(self.cf, text=ps, variable=v, bg=theme.bg3, fg=theme.fg,
+                                   selectcolor=theme.bg4, activebackground=theme.bg3,
+                                   activeforeground=theme.fg).pack(anchor="w", padx=24)
 
         tk.Label(self.pf, text="Add unlisted printer (comma-separated):",
-                 bg=t.bg, fg=t.fg2, font=(UI_FONT, 10)).pack(anchor="w", pady=(8, 2))
-        self.custom = tk.Entry(self.pf, bg=t.bg3, fg=t.fg, insertbackground=t.fg,
-                               highlightbackground=t.border, highlightthickness=1, font=(UI_FONT, 11))
+                 bg=theme.bg, fg=theme.fg2, font=(UI_FONT, 10)).pack(anchor="w", pady=(8, 2))
+        self.custom = tk.Entry(self.pf, bg=theme.bg3, fg=theme.fg, insertbackground=theme.fg,
+                               highlightbackground=theme.border, highlightthickness=1, font=(UI_FONT, 11))
         self.custom.pack(fill="x", pady=(0, 8))
         self._set_state("disabled")
 
-        bf = tk.Frame(self, bg=t.bg)
+        bf = tk.Frame(self, bg=theme.bg)
         bf.pack(fill="x", padx=16, pady=(8, 16))
-        cancel_btn = _make_btn(bf, "Cancel", self._cancel, bg=t.btn_bg, fg=t.btn_fg,
+        cancel_btn = _make_btn(bf, "Cancel", self._cancel, bg=theme.btn_bg, fg=theme.btn_fg,
                                padx=20, pady=6)
         cancel_btn.pack(side="right", padx=(8, 0))
-        convert_btn = _make_btn(bf, "Convert", self._convert, bg=t.accent, fg=t.accent_fg,
+        convert_btn = _make_btn(bf, "Convert", self._convert, bg=theme.accent, fg=theme.accent_fg,
                                 font=(UI_FONT, 11, "bold"), padx=20, pady=6)
         convert_btn.pack(side="right")
 
@@ -1718,19 +1718,19 @@ class CompareDialog(tk.Toplevel):
         self._build(profile_a, profile_b)
 
     def _build(self, pa, pb):
-        t = self.theme
+        theme = self.theme
 
         # ── Header: two profile name columns ──
-        hdr = tk.Frame(self, bg=t.bg)
+        hdr = tk.Frame(self, bg=theme.bg)
         hdr.pack(fill="x", padx=16, pady=(10, 4))
         # Left name
-        tk.Label(hdr, text=pa.name, bg=t.bg, fg=t.accent,
+        tk.Label(hdr, text=pa.name, bg=theme.bg, fg=theme.accent,
                  font=(UI_FONT, 13, "bold")).pack(side="left")
         # Centered "vs"
-        tk.Label(hdr, text="  vs  ", bg=t.bg, fg=t.fg2,
+        tk.Label(hdr, text="  vs  ", bg=theme.bg, fg=theme.fg2,
                  font=(UI_FONT, 12)).pack(side="left")
         # Right name
-        tk.Label(hdr, text=pb.name, bg=t.bg, fg=t.warning,
+        tk.Label(hdr, text=pb.name, bg=theme.bg, fg=theme.warning,
                  font=(UI_FONT, 13, "bold")).pack(side="left")
 
         # ── Find differences and group by section ──
@@ -1763,31 +1763,31 @@ class CompareDialog(tk.Toplevel):
 
         diff_count = len(diffs)
         tk.Label(self, text=f"{diff_count} parameter{'s' if diff_count != 1 else ''} differ",
-                 bg=t.bg, fg=t.fg2, font=(UI_FONT, 11)).pack(anchor="w", padx=16, pady=(0, 6))
+                 bg=theme.bg, fg=theme.fg2, font=(UI_FONT, 11)).pack(anchor="w", padx=16, pady=(0, 6))
 
         # ── Column headers (fixed above scroll) ──
-        col_hdr = tk.Frame(self, bg=t.bg4)
+        col_hdr = tk.Frame(self, bg=theme.bg4)
         col_hdr.pack(fill="x", padx=16)
-        tk.Label(col_hdr, text="Parameter", bg=t.bg4, fg=t.fg,
+        tk.Label(col_hdr, text="Parameter", bg=theme.bg4, fg=theme.fg,
                  font=(UI_FONT, 11, "bold"), anchor="w",
                  padx=8, pady=4).pack(side="left", fill="x", expand=True)
-        tk.Label(col_hdr, text="Left", bg=t.bg4, fg=t.accent,
+        tk.Label(col_hdr, text="Left", bg=theme.bg4, fg=theme.accent,
                  font=(UI_FONT, 11, "bold"), width=18, anchor="w",
                  padx=4, pady=4).pack(side="left")
-        tk.Label(col_hdr, text="Right", bg=t.bg4, fg=t.warning,
+        tk.Label(col_hdr, text="Right", bg=theme.bg4, fg=theme.warning,
                  font=(UI_FONT, 11, "bold"), width=18, anchor="w",
                  padx=4, pady=4).pack(side="left")
-        tk.Label(col_hdr, text="Change", bg=t.bg4, fg=t.fg2,
+        tk.Label(col_hdr, text="Change", bg=theme.bg4, fg=theme.fg2,
                  font=(UI_FONT, 11, "bold"), width=8, anchor="w",
                  padx=4, pady=4).pack(side="left")
 
         # ── Scrollable content ──
-        container = tk.Frame(self, bg=t.bg)
+        container = tk.Frame(self, bg=theme.bg)
         container.pack(fill="both", expand=True, padx=16, pady=(0, 10))
 
-        canvas = tk.Canvas(container, bg=t.bg2, highlightthickness=0)
+        canvas = tk.Canvas(container, bg=theme.bg2, highlightthickness=0)
         sb = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
-        body = tk.Frame(canvas, bg=t.bg2)
+        body = tk.Frame(canvas, bg=theme.bg2)
         body.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         cw = canvas.create_window((0, 0), window=body, anchor="nw")
         canvas.configure(yscrollcommand=sb.set)
@@ -1813,16 +1813,16 @@ class CompareDialog(tk.Toplevel):
         row_idx = 0
         for group_name, keys in grouped.items():
             # Section header
-            sec_hdr = tk.Frame(body, bg=t.bg2)
+            sec_hdr = tk.Frame(body, bg=theme.bg2)
             sec_hdr.pack(fill="x", pady=(8, 2))
-            bar = tk.Frame(sec_hdr, bg=t.accent, width=3)
+            bar = tk.Frame(sec_hdr, bg=theme.accent, width=3)
             bar.pack(side="left", fill="y", padx=(0, 8))
-            tk.Label(sec_hdr, text=group_name, bg=t.bg2, fg=t.fg,
+            tk.Label(sec_hdr, text=group_name, bg=theme.bg2, fg=theme.fg,
                      font=(UI_FONT, 12, "bold"), padx=4).pack(side="left")
 
             for key in keys:
                 va, vb = diffs[key]
-                bg = t.bg2 if row_idx % 2 == 0 else t.bg3
+                bg = theme.bg2 if row_idx % 2 == 0 else theme.bg3
                 row = tk.Frame(body, bg=bg)
                 row.pack(fill="x")
 
@@ -1831,25 +1831,25 @@ class CompareDialog(tk.Toplevel):
                 vb_str = self._fmt(vb, key=key)
                 delta = self._delta(va, vb)
 
-                tk.Label(row, text=label, bg=bg, fg=t.fg, font=(UI_FONT, 12),
+                tk.Label(row, text=label, bg=bg, fg=theme.fg, font=(UI_FONT, 12),
                          anchor="w", padx=10, pady=3).pack(side="left", fill="x", expand=True)
                 # Left value
-                va_fg = t.accent if va is not None else t.fg3
+                va_fg = theme.accent if va is not None else theme.fg3
                 tk.Label(row, text=va_str, bg=bg, fg=va_fg, font=(UI_FONT, 12),
                          width=18, anchor="w", padx=4).pack(side="left")
                 # Right value
-                vb_fg = t.warning if vb is not None else t.fg3
+                vb_fg = theme.warning if vb is not None else theme.fg3
                 tk.Label(row, text=vb_str, bg=bg, fg=vb_fg, font=(UI_FONT, 12),
                          width=18, anchor="w", padx=4).pack(side="left")
                 # Delta
-                delta_fg = t.converted if delta != "\u2014" else t.fg3
+                delta_fg = theme.converted if delta != "\u2014" else theme.fg3
                 tk.Label(row, text=delta, bg=bg, fg=delta_fg, font=(UI_FONT, 11),
                          width=8, anchor="w", padx=4).pack(side="left")
                 row_idx += 1
 
         if not diffs:
             tk.Label(body, text="These profiles are identical.",
-                     bg=t.bg2, fg=t.fg2, font=(UI_FONT, 13), pady=30).pack()
+                     bg=theme.bg2, fg=theme.fg2, font=(UI_FONT, 13), pady=30).pack()
 
         _bind_scroll(body)
 
@@ -1910,31 +1910,31 @@ class ProfileDetailPanel(tk.Frame):
     def _show_placeholder(self, text=None):
         for w in self.winfo_children():
             w.destroy()
-        t = self.theme
+        theme = self.theme
         if text:
-            tk.Label(self, text=text, bg=t.bg2, fg=t.fg2, font=(UI_FONT, 13)).pack(pady=40)
+            tk.Label(self, text=text, bg=theme.bg2, fg=theme.fg2, font=(UI_FONT, 13)).pack(pady=40)
         else:
             # Empty state with centered message and actions
-            container = tk.Frame(self, bg=t.bg2)
+            container = tk.Frame(self, bg=theme.bg2)
             container.place(relx=0.5, rely=0.4, anchor="center")
-            tk.Label(container, text="\u2699", bg=t.bg2, fg=t.fg3,
+            tk.Label(container, text="\u2699", bg=theme.bg2, fg=theme.fg3,
                      font=(UI_FONT, 28)).pack()
-            tk.Label(container, text="No profile selected", bg=t.bg2, fg=t.fg2,
+            tk.Label(container, text="No profile selected", bg=theme.bg2, fg=theme.fg2,
                      font=(UI_FONT, 14)).pack(pady=(4, 8))
-            actions = tk.Frame(container, bg=t.bg2)
+            actions = tk.Frame(container, bg=theme.bg2)
             actions.pack()
-            imp_lbl = tk.Label(actions, text="Import files", bg=t.bg2, fg=t.accent,
+            imp_lbl = tk.Label(actions, text="Import files", bg=theme.bg2, fg=theme.accent,
                                font=(UI_FONT, 13, "bold"), cursor="hand2")
             imp_lbl.pack(side="left", padx=(0, 6))
-            imp_lbl.bind("<Enter>", lambda e: imp_lbl.configure(fg=t.accent2))
-            imp_lbl.bind("<Leave>", lambda e: imp_lbl.configure(fg=t.accent))
-            tk.Label(actions, text="or", bg=t.bg2, fg=t.fg2,
+            imp_lbl.bind("<Enter>", lambda e: imp_lbl.configure(fg=theme.accent2))
+            imp_lbl.bind("<Leave>", lambda e: imp_lbl.configure(fg=theme.accent))
+            tk.Label(actions, text="or", bg=theme.bg2, fg=theme.fg2,
                      font=(UI_FONT, 13)).pack(side="left", padx=(0, 6))
-            lp_lbl = tk.Label(actions, text="Load System Presets", bg=t.bg2, fg=t.accent,
+            lp_lbl = tk.Label(actions, text="Load System Presets", bg=theme.bg2, fg=theme.accent,
                               font=(UI_FONT, 13, "bold"), cursor="hand2")
             lp_lbl.pack(side="left")
-            lp_lbl.bind("<Enter>", lambda e: lp_lbl.configure(fg=t.accent2))
-            lp_lbl.bind("<Leave>", lambda e: lp_lbl.configure(fg=t.accent))
+            lp_lbl.bind("<Enter>", lambda e: lp_lbl.configure(fg=theme.accent2))
+            lp_lbl.bind("<Leave>", lambda e: lp_lbl.configure(fg=theme.accent))
             # Bind clicks — find the App instance
             def _find_app(widget):
                 w = widget
@@ -1970,7 +1970,7 @@ class ProfileDetailPanel(tk.Frame):
         for w in self.winfo_children():
             w.destroy()
 
-        t = self.theme
+        theme = self.theme
         layout = FILAMENT_LAYOUT if profile.profile_type == "filament" else PROCESS_LAYOUT
 
         # Determine which data dict to use for display
@@ -1979,35 +1979,35 @@ class ProfileDetailPanel(tk.Frame):
         self._inherited_keys = profile.inherited_keys if profile.inherited_keys else set()
 
         # ── Header (compact: 3 rows max) ──
-        hdr = tk.Frame(self, bg=t.bg2)
+        hdr = tk.Frame(self, bg=theme.bg2)
         self._header_frame = hdr
         hdr.pack(fill="x", padx=10, pady=(6, 0))
 
         # Row 1: profile name with type prefix (double-click to rename)
         ptype_upper = profile.profile_type.upper()
         self._name_label = tk.Label(hdr, text=f"{ptype_upper}  \u2022  {profile.name}",
-                 bg=t.bg2, fg=t.fg, font=(UI_FONT, 17, "bold"), cursor="hand2")
+                 bg=theme.bg2, fg=theme.fg, font=(UI_FONT, 17, "bold"), cursor="hand2")
         self._name_label.pack(anchor="w")
         self._name_label.bind("<Double-1>", lambda e: self._start_header_rename())
         _Tooltip(self._name_label, "Double-click to rename")
 
         # Row 2: status + inheritance + source — one line, plain text
-        row2 = tk.Frame(hdr, bg=t.bg2)
+        row2 = tk.Frame(hdr, bg=theme.bg2)
         row2.pack(fill="x", pady=(2, 0))
 
         # Status text (colored, no bg box)
         if profile.modified:
             if profile.is_locked:
                 status_text = "Re-targeted"
-                status_fg = t.converted
+                status_fg = theme.converted
             else:
                 status_text = "Universal"
-                status_fg = t.accent
+                status_fg = theme.accent
         elif profile.is_locked:
             printers = profile.compatible_printers
             if printers:
                 status_text = "Locked"
-                status_fg = t.locked
+                status_fg = theme.locked
             else:
                 # Locked to a printer profile via printer_settings_id
                 psid = profile.data.get("printer_settings_id", "")
@@ -2015,14 +2015,14 @@ class ProfileDetailPanel(tk.Frame):
                     psid = psid[0] if psid else ""
                 if psid:
                     status_text = f"Locked to {psid}"
-                    status_fg = t.locked
+                    status_fg = theme.locked
                 else:
                     status_text = "Universal"
-                    status_fg = t.accent
+                    status_fg = theme.accent
         else:
             status_text = "Universal"
-            status_fg = t.accent
-        tk.Label(row2, text=status_text, bg=t.bg2, fg=status_fg,
+            status_fg = theme.accent
+        tk.Label(row2, text=status_text, bg=theme.bg2, fg=status_fg,
                  font=(UI_FONT, 13, "bold")).pack(side="left")
 
         # Separator dot + inheritance + source
@@ -2035,7 +2035,7 @@ class ProfileDetailPanel(tk.Frame):
         info_parts.append(profile.source_label)
         if info_parts:
             tk.Label(row2, text="  \u00b7  " + "  \u00b7  ".join(info_parts),
-                     bg=t.bg2, fg=t.fg2, font=(UI_FONT, 13)).pack(side="left")
+                     bg=theme.bg2, fg=theme.fg2, font=(UI_FONT, 13)).pack(side="left")
 
         # Row 3: parameter count summary (compact)
         display_keys = set(self._display_data.keys()) - _IDENTITY_KEYS
@@ -2050,11 +2050,11 @@ class ProfileDetailPanel(tk.Frame):
         info_parts_unknown = set(display_keys) - known_layout - _IDENTITY_KEYS
         if info_parts_unknown:
             count_parts.append(f"{len(info_parts_unknown)} unrecognized")
-        tk.Label(hdr, text=" \u00b7 ".join(count_parts), bg=t.bg2, fg=t.fg2,
+        tk.Label(hdr, text=" \u00b7 ".join(count_parts), bg=theme.bg2, fg=theme.fg2,
                  font=(UI_FONT, 12)).pack(anchor="w", pady=(1, 0))
 
         # ── Sub-tab bar ──
-        tab_bar = tk.Frame(self, bg=t.bg2)
+        tab_bar = tk.Frame(self, bg=theme.bg2)
         tab_bar.pack(fill="x", padx=10, pady=(6, 0))
 
         self._tab_buttons = []
@@ -2062,24 +2062,24 @@ class ProfileDetailPanel(tk.Frame):
         tab_names = list(layout.keys())
 
         for tab_name in tab_names:
-            btn = tk.Label(tab_bar, text=tab_name, bg=t.bg3, fg=t.fg,
+            btn = tk.Label(tab_bar, text=tab_name, bg=theme.bg3, fg=theme.fg,
                            font=(UI_FONT, 13), padx=10, pady=4, cursor="hand2",
-                           highlightbackground=t.border, highlightthickness=1)
+                           highlightbackground=theme.border, highlightthickness=1)
             btn.pack(side="left", padx=(0, 2))
             btn.bind("<Button-1>", lambda e, tn=tab_name: self._switch_tab(tn))
             self._tab_buttons.append((tab_name, btn))
 
         # Separator below tabs
-        tk.Frame(self, bg=t.border, height=1).pack(fill="x", padx=8, pady=(2, 0))
+        tk.Frame(self, bg=theme.border, height=1).pack(fill="x", padx=8, pady=(2, 0))
 
         # ── Content area ──
-        content_container = tk.Frame(self, bg=t.param_bg)
+        content_container = tk.Frame(self, bg=theme.param_bg)
         content_container.pack(fill="both", expand=True)
 
-        self._content_canvas = tk.Canvas(content_container, bg=t.param_bg, highlightthickness=0)
+        self._content_canvas = tk.Canvas(content_container, bg=theme.param_bg, highlightthickness=0)
         self._content_sb = ttk.Scrollbar(content_container, orient="vertical",
                                           command=self._content_canvas.yview)
-        self._content_frame = tk.Frame(self._content_canvas, bg=t.param_bg)
+        self._content_frame = tk.Frame(self._content_canvas, bg=theme.param_bg)
         self._content_frame.bind("<Configure>",
                                   lambda e: self._content_canvas.configure(
                                       scrollregion=self._content_canvas.bbox("all")))
@@ -2117,17 +2117,17 @@ class ProfileDetailPanel(tk.Frame):
             self._switch_tab(tab_names[0])
 
     def _switch_tab(self, tab_name):
-        t = self.theme
+        theme = self.theme
         self._current_tab = tab_name
         self._param_order = []  # Reset navigation order for new tab
 
         for tn, btn in self._tab_buttons:
             if tn == tab_name:
-                btn.configure(fg=t.accent_fg, bg=t.accent2, font=(UI_FONT, 13, "bold"),
-                              highlightbackground=t.accent2)
+                btn.configure(fg=theme.accent_fg, bg=theme.accent2, font=(UI_FONT, 13, "bold"),
+                              highlightbackground=theme.accent2)
             else:
-                btn.configure(fg=t.fg, bg=t.bg3, font=(UI_FONT, 13),
-                              highlightbackground=t.border)
+                btn.configure(fg=theme.fg, bg=theme.bg3, font=(UI_FONT, 13),
+                              highlightbackground=theme.border)
 
         for w in self._content_frame.winfo_children():
             w.destroy()
@@ -2168,10 +2168,10 @@ class ProfileDetailPanel(tk.Frame):
             if sections:
                 tk.Label(self._content_frame,
                          text="(No overrides in this tab — values inherited from parent)",
-                         bg=t.param_bg, fg=t.fg2, font=(UI_FONT, 13)).pack(pady=20)
+                         bg=theme.param_bg, fg=theme.fg2, font=(UI_FONT, 13)).pack(pady=20)
             else:
                 tk.Label(self._content_frame, text="(No settings in this tab)",
-                         bg=t.param_bg, fg=t.fg2, font=(UI_FONT, 13)).pack(pady=20)
+                         bg=theme.param_bg, fg=theme.fg2, font=(UI_FONT, 13)).pack(pady=20)
 
         # Bind scroll events to all child widgets so scrolling works everywhere
         self._bind_scroll_recursive(self._content_frame)
@@ -2188,7 +2188,7 @@ class ProfileDetailPanel(tk.Frame):
 
     def _render_section(self, section_name, params, data, discovered=False):
         """Render a section. Returns True if any params were shown."""
-        t = self.theme
+        theme = self.theme
 
         # Check if any params exist in data first
         visible = [(k, l) for k, l in params if k in data]
@@ -2196,12 +2196,12 @@ class ProfileDetailPanel(tk.Frame):
             return False
 
         # Section header with left accent bar
-        sh = tk.Frame(self._content_frame, bg=t.param_bg)
+        sh = tk.Frame(self._content_frame, bg=theme.param_bg)
         sh.pack(fill="x", padx=10, pady=(10, 3))
-        accent_bar = tk.Frame(sh, bg=t.warning if discovered else t.accent, width=3)
+        accent_bar = tk.Frame(sh, bg=theme.warning if discovered else theme.accent, width=3)
         accent_bar.pack(side="left", fill="y", padx=(0, 8))
-        fg = t.warning if discovered else t.btn_fg
-        tk.Label(sh, text=section_name, bg=t.param_bg, fg=fg,
+        fg = theme.warning if discovered else theme.btn_fg
+        tk.Label(sh, text=section_name, bg=theme.param_bg, fg=fg,
                  font=(UI_FONT, 15, "bold")).pack(side="left")
 
         for json_key, ui_label in visible:
@@ -2221,18 +2221,18 @@ class ProfileDetailPanel(tk.Frame):
         return str(value) if not isinstance(value, list) else None
 
     def _render_param(self, label, key, value, discovered=False):
-        t = self.theme
+        theme = self.theme
         is_inherited = key in self._inherited_keys
 
-        row = tk.Frame(self._content_frame, bg=t.param_bg)
+        row = tk.Frame(self._content_frame, bg=theme.param_bg)
         row.pack(fill="x", padx=14, pady=2)
         row.columnconfigure(0, minsize=_LABEL_COL_WIDTH)
         row.columnconfigure(1, weight=1)
 
         # Label column — bold for overrides, regular for inherited
-        label_fg = t.fg2 if is_inherited else t.fg
+        label_fg = theme.fg2 if is_inherited else theme.fg
         label_font = (UI_FONT, 13) if is_inherited else (UI_FONT, 13, "bold")
-        lbl = tk.Label(row, text=label, bg=t.param_bg, fg=label_fg, font=label_font,
+        lbl = tk.Label(row, text=label, bg=theme.param_bg, fg=label_fg, font=label_font,
                        anchor="w", width=0)
         lbl.grid(row=0, column=0, sticky="w", padx=(0, 12))
         # Tooltip for unrecognized params: show raw JSON key
@@ -2247,21 +2247,21 @@ class ProfileDetailPanel(tk.Frame):
 
         if key.endswith("_gcode") or key == "post_process" or key == "filament_notes":
             mono = ("Menlo", 13) if platform.system() == "Darwin" else ("Consolas", 13)
-            txt = tk.Text(row, bg=t.bg3, fg=t.fg, font=mono,
+            txt = tk.Text(row, bg=theme.bg3, fg=theme.fg, font=mono,
                           height=min(8, max(2, str(value).count("\n") + 1)), width=40,
-                          highlightbackground=t.border, highlightthickness=1, wrap="word")
+                          highlightbackground=theme.border, highlightthickness=1, wrap="word")
             txt.insert("1.0", str(value) if value else "")
             txt.grid(row=0, column=1, sticky="ew", padx=(4, 0))
             self._edit_vars[key] = (txt, value, "text")
         elif is_enum:
             self._render_enum_dropdown(row, key, value, raw_str, is_inherited)
         else:
-            val_fg = t.fg2 if is_inherited else t.fg
+            val_fg = theme.fg2 if is_inherited else theme.fg
             # Editable value with subtle background affordance
-            val_frame = tk.Frame(row, bg=t.edit_bg, highlightbackground=t.border,
+            val_frame = tk.Frame(row, bg=theme.edit_bg, highlightbackground=theme.border,
                                  highlightthickness=1, padx=4, pady=1)
             val_frame.grid(row=0, column=1, sticky="ew", padx=(4, 0))
-            val_lbl = tk.Label(val_frame, text=display, bg=t.edit_bg, fg=val_fg,
+            val_lbl = tk.Label(val_frame, text=display, bg=theme.edit_bg, fg=val_fg,
                                font=(UI_FONT, 13), anchor="w", cursor="xterm")
             val_lbl.pack(fill="x")
             # Click to edit
@@ -2276,7 +2276,7 @@ class ProfileDetailPanel(tk.Frame):
 
     def _render_enum_dropdown(self, row, key, original_value, raw_str, is_inherited):
         """Render a styled dropdown for an enum parameter."""
-        t = self.theme
+        theme = self.theme
         known_pairs = ENUM_VALUES[key]
 
         # Build human labels list; ensure current value is included
@@ -2325,15 +2325,15 @@ class ProfileDetailPanel(tk.Frame):
 
     def _activate_edit(self, container, label_widget, key, original_value, fg_color):
         """Replace a value label with an editable Entry on click."""
-        t = self.theme
+        theme = self.theme
         label_widget.destroy()
         # Update container border to signal active editing
-        container.configure(highlightbackground=t.accent)
+        container.configure(highlightbackground=theme.accent)
 
         display = self._format_value(original_value, key=key)
         sv = tk.StringVar(value=display)
-        entry = tk.Entry(container, textvariable=sv, bg=t.edit_bg, fg=fg_color,
-                         font=(UI_FONT, 13), insertbackground=t.fg,
+        entry = tk.Entry(container, textvariable=sv, bg=theme.edit_bg, fg=fg_color,
+                         font=(UI_FONT, 13), insertbackground=theme.fg,
                          highlightthickness=0, relief="flat")
         entry.pack(fill="x")
         entry.focus_set()
@@ -2346,8 +2346,8 @@ class ProfileDetailPanel(tk.Frame):
             new_val = self.current_profile.data.get(key, original_value)
             new_display = self._format_value(new_val, key=key)
             entry.destroy()
-            container.configure(highlightbackground=t.border)
-            new_lbl = tk.Label(container, text=new_display, bg=t.edit_bg, fg=fg_color,
+            container.configure(highlightbackground=theme.border)
+            new_lbl = tk.Label(container, text=new_display, bg=theme.edit_bg, fg=fg_color,
                                font=(UI_FONT, 13), anchor="w", cursor="xterm")
             new_lbl.pack(fill="x")
             new_lbl.bind("<Button-1>",
@@ -2474,7 +2474,7 @@ class ProfileDetailPanel(tk.Frame):
         """Replace the profile name label with an editable Entry on double-click."""
         if not self.current_profile:
             return
-        t = self.theme
+        theme = self.theme
         profile = self.current_profile
         ptype_upper = profile.profile_type.upper()
 
@@ -2482,17 +2482,17 @@ class ProfileDetailPanel(tk.Frame):
         # Get the header frame (parent of the label)
         hdr = self._header_frame
 
-        name_frame = tk.Frame(hdr, bg=t.bg2)
+        name_frame = tk.Frame(hdr, bg=theme.bg2)
         name_frame.pack(anchor="w", fill="x")
 
         prefix = tk.Label(name_frame, text=f"{ptype_upper}  \u2022  ",
-                          bg=t.bg2, fg=t.fg, font=(UI_FONT, 17, "bold"))
+                          bg=theme.bg2, fg=theme.fg, font=(UI_FONT, 17, "bold"))
         prefix.pack(side="left")
 
         sv = tk.StringVar(value=profile.name)
-        entry = tk.Entry(name_frame, textvariable=sv, bg=t.bg3, fg=t.fg,
-                         insertbackground=t.fg, font=(UI_FONT, 17, "bold"),
-                         highlightbackground=t.accent, highlightthickness=1,
+        entry = tk.Entry(name_frame, textvariable=sv, bg=theme.bg3, fg=theme.fg,
+                         insertbackground=theme.fg, font=(UI_FONT, 17, "bold"),
+                         highlightbackground=theme.accent, highlightthickness=1,
                          relief="flat")
         entry.pack(side="left", fill="x", expand=True)
         entry.focus_set()
@@ -2506,7 +2506,7 @@ class ProfileDetailPanel(tk.Frame):
             # Rebuild: destroy the edit frame, re-create the label
             name_frame.destroy()
             self._name_label = tk.Label(hdr, text=f"{ptype_upper}  \u2022  {profile.name}",
-                     bg=t.bg2, fg=t.fg, font=(UI_FONT, 17, "bold"), cursor="hand2")
+                     bg=theme.bg2, fg=theme.fg, font=(UI_FONT, 17, "bold"), cursor="hand2")
             # Insert at top of header
             self._name_label.pack(anchor="w", before=hdr.winfo_children()[0] if hdr.winfo_children() else None)
             self._name_label.bind("<Double-1>", lambda e: self._start_header_rename())
@@ -2514,7 +2514,7 @@ class ProfileDetailPanel(tk.Frame):
         def _cancel(event=None):
             name_frame.destroy()
             self._name_label = tk.Label(hdr, text=f"{ptype_upper}  \u2022  {profile.name}",
-                     bg=t.bg2, fg=t.fg, font=(UI_FONT, 17, "bold"), cursor="hand2")
+                     bg=theme.bg2, fg=theme.fg, font=(UI_FONT, 17, "bold"), cursor="hand2")
             self._name_label.pack(anchor="w", before=hdr.winfo_children()[0] if hdr.winfo_children() else None)
             self._name_label.bind("<Double-1>", lambda e: self._start_header_rename())
 
@@ -2538,29 +2538,29 @@ class ProfileListPanel(tk.Frame):
         self._build()
 
     def _build(self):
-        t = self.theme
+        theme = self.theme
 
-        paned = tk.PanedWindow(self, orient="horizontal", bg=t.border,
+        paned = tk.PanedWindow(self, orient="horizontal", bg=theme.border,
                                 sashwidth=4, sashrelief="flat",
                                 opaqueresize=True)
         paned.pack(fill="both", expand=True)
 
         # ── Left: profile list ──
-        left = tk.Frame(paned, bg=t.bg2)
+        left = tk.Frame(paned, bg=theme.bg2)
         paned.add(left, minsize=320, width=480)
 
         # ── Filter row ──
-        ff = tk.Frame(left, bg=t.bg3, highlightbackground=t.border, highlightthickness=1)
+        ff = tk.Frame(left, bg=theme.bg3, highlightbackground=theme.border, highlightthickness=1)
         ff.pack(fill="x", padx=6, pady=(0, 4))
-        tk.Label(ff, text="\u2315", bg=t.bg3, fg=t.fg3, font=(UI_FONT, 14),
+        tk.Label(ff, text="\u2315", bg=theme.bg3, fg=theme.fg3, font=(UI_FONT, 14),
                  padx=6).pack(side="left")
         self._filter_var = tk.StringVar()
-        self._filter = tk.Entry(ff, textvariable=self._filter_var, bg=t.bg3, fg=t.fg,
-                                insertbackground=t.fg, highlightthickness=0,
+        self._filter = tk.Entry(ff, textvariable=self._filter_var, bg=theme.bg3, fg=theme.fg,
+                                insertbackground=theme.fg, highlightthickness=0,
                                 font=(UI_FONT, 13), relief="flat", bd=0)
         self._filter.pack(side="left", fill="x", expand=True, ipady=4)
         self._filter.insert(0, "Filter...")
-        self._filter.configure(fg=t.placeholder_fg, font=(UI_FONT, 13, "italic"))
+        self._filter.configure(fg=theme.placeholder_fg, font=(UI_FONT, 13, "italic"))
         self._filter.bind("<FocusIn>", self._filter_in)
         self._filter.bind("<FocusOut>", self._filter_out)
         self._placeholder = True
@@ -2577,9 +2577,9 @@ class ProfileListPanel(tk.Frame):
         self._group_var = tk.StringVar(value=self._group_labels[0])
         self._group_by = "none"
 
-        gf = tk.Frame(left, bg=t.bg2)
+        gf = tk.Frame(left, bg=theme.bg2)
         gf.pack(fill="x", padx=6, pady=(0, 4))
-        tk.Label(gf, text="Group:", bg=t.bg2, fg=t.fg3,
+        tk.Label(gf, text="Group:", bg=theme.bg2, fg=theme.fg3,
                  font=(UI_FONT, 13)).pack(side="left", padx=(2, 6))
         group_cb = ttk.Combobox(gf, textvariable=self._group_var,
                                 values=self._group_labels,
@@ -2589,7 +2589,7 @@ class ProfileListPanel(tk.Frame):
         group_cb.bind("<<ComboboxSelected>>", self._on_group_change)
 
         # ── Treeview (must exist before trace) ──
-        tf = tk.Frame(left, bg=t.bg2)
+        tf = tk.Frame(left, bg=theme.bg2)
         tf.pack(fill="both", expand=True, padx=6, pady=(0, 4))
 
         self.tree = ttk.Treeview(tf, columns=("name", "status", "origin"),
@@ -2603,13 +2603,13 @@ class ProfileListPanel(tk.Frame):
         self.tree.column("status", width=120, minwidth=100, stretch=False)
         self.tree.column("origin", width=90, minwidth=60)
         # Tag styles for alternating rows and colored status
-        self.tree.tag_configure("row_even", background=t.bg2)
-        self.tree.tag_configure("row_odd", background=t.bg3)
-        self.tree.tag_configure("status_universal", foreground=t.accent)
-        self.tree.tag_configure("status_locked", foreground=t.locked)
-        self.tree.tag_configure("status_converted", foreground=t.converted)
-        self.tree.tag_configure("group_header", background=t.bg,
-                                 foreground=t.btn_fg, font=(UI_FONT, 11, "bold"))
+        self.tree.tag_configure("row_even", background=theme.bg2)
+        self.tree.tag_configure("row_odd", background=theme.bg3)
+        self.tree.tag_configure("status_universal", foreground=theme.accent)
+        self.tree.tag_configure("status_locked", foreground=theme.locked)
+        self.tree.tag_configure("status_converted", foreground=theme.converted)
+        self.tree.tag_configure("group_header", background=theme.bg,
+                                 foreground=theme.btn_fg, font=(UI_FONT, 11, "bold"))
         self._collapsed_groups = set()  # Track which groups are collapsed
 
         ts = ttk.Scrollbar(tf, orient="vertical", command=self.tree.yview)
@@ -2634,39 +2634,39 @@ class ProfileListPanel(tk.Frame):
 
         # ── Action rows below treeview ──
         # Row 1: secondary actions (left) + utility (right)
-        action_row1 = tk.Frame(left, bg=t.bg2)
+        action_row1 = tk.Frame(left, bg=theme.bg2)
         action_row1.pack(fill="x", padx=6, pady=(0, 2))
         _make_btn(action_row1, "Remove from list",
                   lambda: self.app._on_remove(),
-                  bg=t.bg4, fg=t.fg2,
+                  bg=theme.bg4, fg=theme.fg2,
                   font=(UI_FONT, 10), padx=6, pady=3).pack(side="left", padx=(0, 3))
         _make_btn(action_row1, "Clear list",
                   lambda: self.app._on_clear_list(),
-                  bg=t.bg4, fg=t.warning,
+                  bg=theme.bg4, fg=theme.warning,
                   font=(UI_FONT, 10), padx=6, pady=3).pack(side="left", padx=(0, 3))
         _make_btn(action_row1, "Show Folder",
                   lambda: self.app._on_show_folder(),
-                  bg=t.bg4, fg=t.btn_fg,
+                  bg=theme.bg4, fg=theme.btn_fg,
                   font=(UI_FONT, 10), padx=6, pady=3).pack(side="right", padx=(0, 3))
         _make_btn(action_row1, "Compare",
                   lambda: self.app._on_compare(),
-                  bg=t.bg4, fg=t.btn_fg,
+                  bg=theme.bg4, fg=theme.btn_fg,
                   font=(UI_FONT, 10), padx=6, pady=3).pack(side="right", padx=(0, 3))
 
         # Thin separator between secondary and primary actions
-        tk.Frame(left, bg=t.border, height=1).pack(fill="x", padx=6, pady=(2, 2))
+        tk.Frame(left, bg=theme.border, height=1).pack(fill="x", padx=6, pady=(2, 2))
 
         # Row 2: primary convert actions
-        action_row2 = tk.Frame(left, bg=t.bg2)
+        action_row2 = tk.Frame(left, bg=theme.bg2)
         action_row2.pack(fill="x", padx=6, pady=(0, 4))
         _make_btn(action_row2, "Convert Selected",
                   lambda: self.app._on_convert(),
-                  bg=t.accent2, fg=t.accent_fg,
+                  bg=theme.accent2, fg=theme.accent_fg,
                   font=(UI_FONT, 11, "bold"),
                   padx=8, pady=4).pack(side="right", padx=(0, 4))
         _make_btn(action_row2, "Convert All",
                   lambda: self.app._on_convert_all(),
-                  bg=t.convert_all_bg, fg=t.btn_fg,
+                  bg=theme.convert_all_bg, fg=theme.btn_fg,
                   font=(UI_FONT, 11, "bold"), padx=8, pady=4).pack(side="right", padx=(0, 4))
 
         # ── Right: detail panel ──
@@ -2925,7 +2925,7 @@ class ProfileListPanel(tk.Frame):
 
     def _on_context_menu(self, event):
         """Show right-click context menu on the treeview."""
-        t = self.theme
+        theme = self.theme
         # Select the item under cursor if not already selected
         item = self.tree.identify_row(event.y)
         if item:
@@ -2938,8 +2938,8 @@ class ProfileListPanel(tk.Frame):
         if not sel:
             return
 
-        menu = tk.Menu(self, tearoff=0, bg=t.bg3, fg=t.fg,
-                       activebackground=t.accent2, activeforeground=t.accent_fg,
+        menu = tk.Menu(self, tearoff=0, bg=theme.bg3, fg=theme.fg,
+                       activebackground=theme.accent2, activeforeground=theme.accent_fg,
                        font=(UI_FONT, 12))
 
         n = len(sel)
@@ -2949,8 +2949,8 @@ class ProfileListPanel(tk.Frame):
         # Install to Slicer submenu
         slicers = self.app.detected_slicers
         if slicers:
-            install_menu = tk.Menu(menu, tearoff=0, bg=t.bg3, fg=t.fg,
-                                   activebackground=t.accent2, activeforeground=t.accent_fg,
+            install_menu = tk.Menu(menu, tearoff=0, bg=theme.bg3, fg=theme.fg,
+                                   activebackground=theme.accent2, activeforeground=theme.accent_fg,
                                    font=(UI_FONT, 12))
             for name, path in slicers.items():
                 install_menu.add_command(
@@ -3035,7 +3035,7 @@ class ProfileListPanel(tk.Frame):
 
     def _start_inline_rename(self, iid, idx):
         """Show an inline Entry widget over the profile name in the treeview."""
-        t = self.theme
+        theme = self.theme
         p = self.profiles[idx]
 
         # Get the bounding box of the "name" column for this item
@@ -3048,9 +3048,9 @@ class ProfileListPanel(tk.Frame):
         x, y, w, h = bbox
 
         sv = tk.StringVar(value=p.name)
-        entry = tk.Entry(self.tree, textvariable=sv, bg=t.bg3, fg=t.fg,
-                         insertbackground=t.fg, font=(UI_FONT, 12),
-                         highlightbackground=t.accent, highlightthickness=1,
+        entry = tk.Entry(self.tree, textvariable=sv, bg=theme.bg3, fg=theme.fg,
+                         insertbackground=theme.fg, font=(UI_FONT, 12),
+                         highlightbackground=theme.accent, highlightthickness=1,
                          relief="flat")
         entry.place(x=x, y=y, width=w, height=h)
         entry.focus_set()
@@ -3102,45 +3102,45 @@ class App(tk.Tk):
         self._update_status("Ready. Open profiles or extract from .3mf to get started.")
 
     def _configure_styles(self):
-        t = self.theme
+        theme = self.theme
         style = ttk.Style(self)
         available = style.theme_names()
         if "clam" in available:
             style.theme_use("clam")
-        style.configure(".", background=t.bg, foreground=t.fg)
-        style.configure("TFrame", background=t.bg)
-        style.configure("TLabel", background=t.bg, foreground=t.fg)
-        style.configure("Treeview", background=t.bg2, foreground=t.fg,
-                         fieldbackground=t.bg2, rowheight=_TREE_ROW_HEIGHT)
+        style.configure(".", background=theme.bg, foreground=theme.fg)
+        style.configure("TFrame", background=theme.bg)
+        style.configure("TLabel", background=theme.bg, foreground=theme.fg)
+        style.configure("Treeview", background=theme.bg2, foreground=theme.fg,
+                         fieldbackground=theme.bg2, rowheight=_TREE_ROW_HEIGHT)
         style.map("Treeview",
-                   background=[("selected", t.sel)],
-                   foreground=[("selected", t.fg)])
-        style.configure("Treeview.Heading", background=t.bg4, foreground=t.fg,
+                   background=[("selected", theme.sel)],
+                   foreground=[("selected", theme.fg)])
+        style.configure("Treeview.Heading", background=theme.bg4, foreground=theme.fg,
                          font=(UI_FONT, 12, "bold"), relief="flat", padding=(6, 4))
         style.map("Treeview.Heading",
-                   background=[("active", t.bg3)])
+                   background=[("active", theme.bg3)])
         # Combobox for enum parameter dropdowns
         style.configure("Param.TCombobox",
-                         fieldbackground=t.bg3, background=t.bg3,
-                         foreground=t.fg, arrowcolor=t.fg2,
+                         fieldbackground=theme.bg3, background=theme.bg3,
+                         foreground=theme.fg, arrowcolor=theme.fg2,
                          borderwidth=1, relief="flat")
         style.map("Param.TCombobox",
-                   fieldbackground=[("readonly", t.bg3)],
-                   foreground=[("readonly", t.fg)],
-                   background=[("readonly", t.bg3)])
+                   fieldbackground=[("readonly", theme.bg3)],
+                   foreground=[("readonly", theme.fg)],
+                   background=[("readonly", theme.bg3)])
         # Style the dropdown list itself
-        self.option_add("*TCombobox*Listbox.background", t.bg3)
-        self.option_add("*TCombobox*Listbox.foreground", t.fg)
-        self.option_add("*TCombobox*Listbox.selectBackground", t.accent2)
-        self.option_add("*TCombobox*Listbox.selectForeground", t.accent_fg)
+        self.option_add("*TCombobox*Listbox.background", theme.bg3)
+        self.option_add("*TCombobox*Listbox.foreground", theme.fg)
+        self.option_add("*TCombobox*Listbox.selectBackground", theme.accent2)
+        self.option_add("*TCombobox*Listbox.selectForeground", theme.accent_fg)
         self.option_add("*TCombobox*Listbox.font", (UI_FONT, 13))
 
-        style.configure("TNotebook", background=t.bg, borderwidth=0)
-        style.configure("TNotebook.Tab", background=t.bg4, foreground=t.fg2,
+        style.configure("TNotebook", background=theme.bg, borderwidth=0)
+        style.configure("TNotebook.Tab", background=theme.bg4, foreground=theme.fg2,
                          padding=(18, 8), font=(UI_FONT, 12))
         style.map("TNotebook.Tab",
-                   background=[("selected", t.accent2)],
-                   foreground=[("selected", t.accent_fg)],
+                   background=[("selected", theme.accent2)],
+                   foreground=[("selected", theme.accent_fg)],
                    padding=[("selected", (18, 8))])  # Same padding so selected tab doesn't shrink
 
     def _build_menu(self):
@@ -3179,44 +3179,44 @@ class App(tk.Tk):
         self.bind(f"<{m}-a>", lambda e: self._on_select_all())
 
     def _build_ui(self):
-        t = self.theme
+        theme = self.theme
 
         # ── Status bar (pack first so it stays at bottom) ──
         self.status_var = tk.StringVar()
-        sf = tk.Frame(self, bg=t.bg)
+        sf = tk.Frame(self, bg=theme.bg)
         sf.pack(fill="x", side="bottom")
         self._count_var = tk.StringVar()
-        tk.Label(sf, textvariable=self._count_var, anchor="w", bg=t.bg, fg=t.fg2,
+        tk.Label(sf, textvariable=self._count_var, anchor="w", bg=theme.bg, fg=theme.fg2,
                  font=(UI_FONT, 12), padx=12, pady=4).pack(side="left")
-        tk.Label(sf, textvariable=self.status_var, anchor="w", bg=t.bg, fg=t.fg3,
+        tk.Label(sf, textvariable=self.status_var, anchor="w", bg=theme.bg, fg=theme.fg3,
                  font=(UI_FONT, 12), padx=6, pady=4).pack(side="left", fill="x", expand=True)
         if self.detected_slicers:
             tk.Label(sf, text=f"Detected: {', '.join(self.detected_slicers.keys())}",
-                     bg=t.bg, fg=t.fg3, font=(UI_FONT, 12), padx=12).pack(side="right")
+                     bg=theme.bg, fg=theme.fg3, font=(UI_FONT, 12), padx=12).pack(side="right")
 
         # ── Toolbar row (above notebook) ──
-        toolbar_row = tk.Frame(self, bg=t.bg)
+        toolbar_row = tk.Frame(self, bg=theme.bg)
         toolbar_row.pack(fill="x", side="top")
 
         # Tab labels on the left (custom drawn so toolbar shares the row)
         self._tab_var = tk.StringVar(value="process")
-        tab_frame = tk.Frame(toolbar_row, bg=t.bg)
+        tab_frame = tk.Frame(toolbar_row, bg=theme.bg)
         tab_frame.pack(side="left", padx=(4, 0), pady=(4, 0))
 
         self._process_tab = _make_btn(tab_frame, "  Process  ",
                   lambda: self._switch_tab("process"),
-                  bg=t.accent2, fg=t.accent_fg,
+                  bg=theme.accent2, fg=theme.accent_fg,
                   font=(UI_FONT, 13, "bold"), padx=14, pady=6)
         self._process_tab.pack(side="left", padx=(0, 2))
 
         self._filament_tab = _make_btn(tab_frame, "  Filament  ",
                   lambda: self._switch_tab("filament"),
-                  bg=t.bg4, fg=t.btn_fg,
+                  bg=theme.bg4, fg=theme.btn_fg,
                   font=(UI_FONT, 13), padx=14, pady=6)
         self._filament_tab.pack(side="left")
 
         # Toolbar buttons on the right
-        toolbar = tk.Frame(toolbar_row, bg=t.bg)
+        toolbar = tk.Frame(toolbar_row, bg=theme.bg)
         toolbar.pack(side="right", padx=(0, 8), pady=(4, 0))
 
         btn_font = (UI_FONT, 12)
@@ -3224,21 +3224,21 @@ class App(tk.Tk):
 
         _make_btn(toolbar, "Import (JSON, 3MF)",
                   self._on_import,
-                  bg=t.bg4, fg=t.btn_fg, font=btn_font,
+                  bg=theme.bg4, fg=theme.btn_fg, font=btn_font,
                   padx=btn_pad, pady=5).pack(side="left", padx=(0, 4))
 
         _make_btn(toolbar, "Load System Presets",
                   self._on_load_presets,
-                  bg=t.bg4, fg=t.btn_fg, font=btn_font,
+                  bg=theme.bg4, fg=theme.btn_fg, font=btn_font,
                   padx=btn_pad, pady=5).pack(side="left", padx=(0, 4))
 
         _make_btn(toolbar, "Export",
                   self._on_export,
-                  bg=t.bg4, fg=t.btn_fg, font=btn_font,
+                  bg=theme.bg4, fg=theme.btn_fg, font=btn_font,
                   padx=btn_pad, pady=5).pack(side="right", padx=(0, 4))
 
         # ── Content area: stacked frames (manual tab switching) ──
-        self._content_area = tk.Frame(self, bg=t.bg)
+        self._content_area = tk.Frame(self, bg=theme.bg)
         self._content_area.pack(fill="both", expand=True)
 
         self.process_panel = ProfileListPanel(self._content_area, t, "process", self)
@@ -3250,22 +3250,22 @@ class App(tk.Tk):
 
     def _switch_tab(self, tab_name):
         """Switch between Process and Filament tabs."""
-        t = self.theme
+        theme = self.theme
         if tab_name == self._current_tab:
             return
         if tab_name == "process":
             self.filament_panel.pack_forget()
             self.process_panel.pack(fill="both", expand=True)
-            self._process_tab.configure(bg=t.accent2, fg=t.accent_fg,
+            self._process_tab.configure(bg=theme.accent2, fg=theme.accent_fg,
                                          font=(UI_FONT, 13, "bold"))
-            self._filament_tab.configure(bg=t.bg4, fg=t.btn_fg,
+            self._filament_tab.configure(bg=theme.bg4, fg=theme.btn_fg,
                                           font=(UI_FONT, 13))
         else:
             self.process_panel.pack_forget()
             self.filament_panel.pack(fill="both", expand=True)
-            self._filament_tab.configure(bg=t.accent2, fg=t.accent_fg,
+            self._filament_tab.configure(bg=theme.accent2, fg=theme.accent_fg,
                                           font=(UI_FONT, 13, "bold"))
-            self._process_tab.configure(bg=t.bg4, fg=t.btn_fg,
+            self._process_tab.configure(bg=theme.bg4, fg=theme.btn_fg,
                                          font=(UI_FONT, 13))
         self._current_tab = tab_name
 
@@ -3535,13 +3535,13 @@ class App(tk.Tk):
         dlg.grab_set()
         dlg.geometry("+%d+%d" % (self.winfo_rootx() + 120, self.winfo_rooty() + 120))
 
-        t = self.theme
-        tk.Label(dlg, text="New profile name:", bg=t.bg, fg=t.fg,
+        theme = self.theme
+        tk.Label(dlg, text="New profile name:", bg=theme.bg, fg=theme.fg,
                  font=(UI_FONT, 11)).pack(padx=16, pady=(12, 4), anchor="w")
         name_var = tk.StringVar(value=f"{source.name} (copy)")
-        entry = tk.Entry(dlg, textvariable=name_var, bg=t.bg3, fg=t.fg,
-                         font=(UI_FONT, 12), insertbackground=t.fg,
-                         highlightbackground=t.accent, highlightthickness=1,
+        entry = tk.Entry(dlg, textvariable=name_var, bg=theme.bg3, fg=theme.fg,
+                         font=(UI_FONT, 12), insertbackground=theme.fg,
+                         highlightbackground=theme.accent, highlightthickness=1,
                          width=40)
         entry.pack(padx=16, pady=(0, 8))
         entry.select_range(0, "end")
@@ -3558,13 +3558,13 @@ class App(tk.Tk):
         def on_cancel(event=None):
             dlg.destroy()
 
-        btn_row = tk.Frame(dlg, bg=t.bg)
+        btn_row = tk.Frame(dlg, bg=theme.bg)
         btn_row.pack(fill="x", padx=16, pady=(0, 12))
         _make_btn(btn_row, "Create", on_ok,
-                  bg=t.accent2, fg=t.accent_fg,
+                  bg=theme.accent2, fg=theme.accent_fg,
                   font=(UI_FONT, 10, "bold"), padx=12, pady=4).pack(side="right")
         _make_btn(btn_row, "Cancel", on_cancel,
-                  bg=t.bg4, fg=t.btn_fg,
+                  bg=theme.bg4, fg=theme.btn_fg,
                   font=(UI_FONT, 10), padx=8, pady=4).pack(side="right", padx=(0, 4))
 
         entry.bind("<Return>", on_ok)
