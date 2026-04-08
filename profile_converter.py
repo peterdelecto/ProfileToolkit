@@ -2305,7 +2305,7 @@ class ProfileDetailPanel(tk.Frame):
         if discovered:
             _Tooltip(lbl, f"JSON key: {key}")
 
-        display = self._format_value(value)
+        display = self._format_value(value, key=key)
 
         # Check if this is an enum parameter that should get a dropdown
         raw_str = self._get_raw_enum_str(value)
@@ -2396,7 +2396,7 @@ class ProfileDetailPanel(tk.Frame):
         # Update container border to signal active editing
         container.configure(highlightbackground=t.accent)
 
-        display = self._format_value(original_value)
+        display = self._format_value(original_value, key=key)
         sv = tk.StringVar(value=display)
         entry = tk.Entry(container, textvariable=sv, bg=t.edit_bg, fg=fg_color,
                          font=(UI_FONT, 13), insertbackground=t.fg,
@@ -2410,7 +2410,7 @@ class ProfileDetailPanel(tk.Frame):
         def finish_edit(event=None):
             self._commit_single(key)
             new_val = self.current_profile.data.get(key, original_value)
-            new_display = self._format_value(new_val)
+            new_display = self._format_value(new_val, key=key)
             entry.destroy()
             container.configure(highlightbackground=t.border)
             new_lbl = tk.Label(container, text=new_display, bg=t.edit_bg, fg=fg_color,
