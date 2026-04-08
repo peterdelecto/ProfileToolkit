@@ -2781,10 +2781,14 @@ class ProfileListPanel(tk.Frame):
                 # Group header selected — select all children
                 for child in self.tree.get_children(iid):
                     idx = int(child)
+                    # Guard: defensive against stale IIDs if a refresh races with selection
+                    # (single-threaded tkinter makes true races impossible, but belt-and-suspenders).
                     if idx < len(self.profiles):
                         result.append(self.profiles[idx])
             else:
                 idx = int(s)
+                # Guard: defensive against stale IIDs if a refresh races with selection
+                # (single-threaded tkinter makes true races impossible, but belt-and-suspenders).
                 if idx < len(self.profiles):
                     result.append(self.profiles[idx])
         return result
