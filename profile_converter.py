@@ -1501,18 +1501,41 @@ def _bind_scroll(widget, canvas):
     widget.bind("<Button-5>", lambda e: canvas.yview_scroll(3, "units"))
 
 
+def _lighten_color(hex_color, amount=20):
+    """Return a slightly lighter version of a hex color string."""
+    h = hex_color.lstrip('#')
+    r = min(255, int(h[0:2], 16) + amount)
+    g = min(255, int(h[2:4], 16) + amount)
+    b = min(255, int(h[4:6], 16) + amount)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
 def _make_btn(parent, text, command, bg, fg, font=(UI_FONT, 11), padx=10, pady=4, **kw):
-    """Create a Label-based button. macOS ignores bg/fg on tk.Button;
-    Labels respect them and we bind click events manually.
-    No hover effects — colors stay constant."""
+    """Create a Label-based button with hover color lightening.
+    macOS ignores bg/fg on tk.Button; Labels respect them and we bind click events manually."""
     state = {"bg": bg}
 
     wrapper = tk.Frame(parent, bg=bg, highlightthickness=0)
     lbl = tk.Label(wrapper, text=text, bg=bg, fg=fg, font=font,
-                   padx=padx, pady=pady, cursor="hand2",
+                   padx=padx, pady=pady,
                    highlightthickness=0)
     lbl.pack(side="top")
     lbl.bind("<Button-1>", lambda e: command())
+    wrapper.bind("<Button-1>", lambda e: command())
+
+    def _on_btn_enter(e):
+        lit = _lighten_color(state["bg"])
+        lbl.configure(bg=lit)
+        _orig_configure(bg=lit)
+
+    def _on_btn_leave(e):
+        lbl.configure(bg=state["bg"])
+        _orig_configure(bg=state["bg"])
+
+    lbl.bind("<Enter>", _on_btn_enter)
+    lbl.bind("<Leave>", _on_btn_leave)
+    wrapper.bind("<Enter>", _on_btn_enter)
+    wrapper.bind("<Leave>", _on_btn_leave)
 
     wrapper._inner_label = lbl
     # Proxy configure to inner label for tab switching
@@ -1927,6 +1950,7 @@ class ProfileDetailPanel(tk.Frame):
         self._pre_edit_modified = None  # snapshot of profile.modified before first edit
         self._param_order = []  # ordered list of (key, container, fg_color) for Tab nav
         self._header_frame = None
+        self._name_row = None
         self._content_canvas = None
         self._content_frame = None
         self._content_sb = None
@@ -1954,14 +1978,14 @@ class ProfileDetailPanel(tk.Frame):
             actions = tk.Frame(container, bg=theme.bg2)
             actions.pack()
             imp_lbl = tk.Label(actions, text="Import files", bg=theme.bg2, fg=theme.accent,
-                               font=(UI_FONT, 13, "bold"), cursor="hand2")
+                               font=(UI_FONT, 13, "bold"))
             imp_lbl.pack(side="left", padx=(0, 6))
             imp_lbl.bind("<Enter>", lambda e: imp_lbl.configure(fg=theme.accent2))
             imp_lbl.bind("<Leave>", lambda e: imp_lbl.configure(fg=theme.accent))
             tk.Label(actions, text="or", bg=theme.bg2, fg=theme.fg2,
                      font=(UI_FONT, 13)).pack(side="left", padx=(0, 6))
             lp_lbl = tk.Label(actions, text="Load System Presets", bg=theme.bg2, fg=theme.accent,
-                              font=(UI_FONT, 13, "bold"), cursor="hand2")
+                              font=(UI_FONT, 13, "bold"))
             lp_lbl.pack(side="left")
             lp_lbl.bind("<Enter>", lambda e: lp_lbl.configure(fg=theme.accent2))
             lp_lbl.bind("<Leave>", lambda e: lp_lbl.configure(fg=theme.accent))
@@ -1999,11 +2023,20 @@ class ProfileDetailPanel(tk.Frame):
         header_frame = tk.Frame(self, bg=theme.bg2)
         header_frame.pack(fill="x", padx=10, pady=(6, 0))
 
-        # Row 1: profile name with type prefix (double-click to rename)
+        # Row 1: profile name (left) + Save button (right)
+        self._name_row = tk.Frame(header_frame, bg=theme.bg2)
+        self._name_row.pack(fill="x")
+        name_row = self._name_row
+
+        save_btn = _make_btn(name_row, "Save", self._save_profile,
+                             bg=theme.bg4, fg=theme.fg2,
+                             font=(UI_FONT, 10), padx=8, pady=2)
+        save_btn.pack(side="right", pady=(4, 0))
+
         ptype_upper = profile.profile_type.upper()
-        self._name_label = tk.Label(header_frame, text=f"{ptype_upper}  \u2022  {profile.name}",
-                 bg=theme.bg2, fg=theme.fg, font=(UI_FONT, 17, "bold"), cursor="hand2")
-        self._name_label.pack(anchor="w")
+        self._name_label = tk.Label(name_row, text=f"{ptype_upper}  \u2022  {profile.name}",
+                 bg=theme.bg2, fg=theme.fg, font=(UI_FONT, 17, "bold"))
+        self._name_label.pack(side="left", anchor="w")
         self._name_label.bind("<Double-1>", lambda e: self._start_header_rename())
         _Tooltip(self._name_label, "Double-click to rename")
 
@@ -2083,7 +2116,7 @@ class ProfileDetailPanel(tk.Frame):
 
         for tab_name in tab_names:
             btn = tk.Label(tab_bar, text=tab_name, bg=theme.bg3, fg=theme.fg,
-                           font=(UI_FONT, 13), padx=10, pady=4, cursor="hand2",
+                           font=(UI_FONT, 13), padx=10, pady=4,
                            highlightbackground=theme.border, highlightthickness=1)
             btn.pack(side="left", padx=(0, 2))
             btn.bind("<Button-1>", lambda e, tn=tab_name: self._switch_tab(tn))
@@ -2498,6 +2531,31 @@ class ProfileDetailPanel(tk.Frame):
             return _get_enum_human_label(key, value_str)
         return value_str[:_VALUE_TRUNCATE_LONG] + "..." if len(value_str) > _VALUE_TRUNCATE_LONG else value_str
 
+    def _save_profile(self):
+        """Save the current profile to a JSON file chosen by the user."""
+        if not self.current_profile:
+            return
+        self._commit_edits()
+        profile = self.current_profile
+        init_dir = (os.path.dirname(profile.source_path)
+                    if profile.source_path and os.path.exists(os.path.dirname(profile.source_path))
+                    else os.path.expanduser("~"))
+        fp = filedialog.asksaveasfilename(
+            title="Save Profile",
+            initialdir=init_dir,
+            initialfile=profile.suggested_filename(),
+            defaultextension=".json",
+            filetypes=[("JSON Profile", "*.json"), ("All files", "*.*")],
+        )
+        if not fp:
+            return
+        try:
+            with open(fp, "w", encoding="utf-8") as f:
+                f.write(profile.to_json())
+            messagebox.showinfo("Saved", f"Profile saved to:\n{os.path.basename(fp)}")
+        except Exception as e:
+            messagebox.showerror("Save Failed", str(e))
+
     def _start_header_rename(self):
         """Replace the profile name label with an editable Entry on double-click."""
         if not self.current_profile:
@@ -2507,11 +2565,10 @@ class ProfileDetailPanel(tk.Frame):
         ptype_upper = profile.profile_type.upper()
 
         self._name_label.destroy()
-        # Get the header frame (parent of the label)
-        header_frame = self._header_frame
+        name_row = self._name_row
 
-        name_frame = tk.Frame(header_frame, bg=theme.bg2)
-        name_frame.pack(anchor="w", fill="x")
+        name_frame = tk.Frame(name_row, bg=theme.bg2)
+        name_frame.pack(side="left", fill="x", expand=True)
 
         prefix = tk.Label(name_frame, text=f"{ptype_upper}  \u2022  ",
                           bg=theme.bg2, fg=theme.fg, font=(UI_FONT, 17, "bold"))
@@ -2526,25 +2583,22 @@ class ProfileDetailPanel(tk.Frame):
         entry.focus_set()
         entry.select_range(0, "end")
 
+        def _rebuild_label():
+            name_frame.destroy()
+            self._name_label = tk.Label(name_row, text=f"{ptype_upper}  \u2022  {profile.name}",
+                     bg=theme.bg2, fg=theme.fg, font=(UI_FONT, 17, "bold"))
+            self._name_label.pack(side="left", anchor="w")
+            self._name_label.bind("<Double-1>", lambda e: self._start_header_rename())
+
         def _finish(event=None):
             new_name = name_var.get().strip()
             if new_name and new_name != profile.name:
                 profile.data["name"] = new_name
                 profile.modified = True
-            # Rebuild: destroy the edit frame, re-create the label
-            name_frame.destroy()
-            self._name_label = tk.Label(header_frame, text=f"{ptype_upper}  \u2022  {profile.name}",
-                     bg=theme.bg2, fg=theme.fg, font=(UI_FONT, 17, "bold"), cursor="hand2")
-            # Insert at top of header
-            self._name_label.pack(anchor="w", before=header_frame.winfo_children()[0] if header_frame.winfo_children() else None)
-            self._name_label.bind("<Double-1>", lambda e: self._start_header_rename())
+            _rebuild_label()
 
         def _cancel(event=None):
-            name_frame.destroy()
-            self._name_label = tk.Label(header_frame, text=f"{ptype_upper}  \u2022  {profile.name}",
-                     bg=theme.bg2, fg=theme.fg, font=(UI_FONT, 17, "bold"), cursor="hand2")
-            self._name_label.pack(anchor="w", before=header_frame.winfo_children()[0] if header_frame.winfo_children() else None)
-            self._name_label.bind("<Double-1>", lambda e: self._start_header_rename())
+            _rebuild_label()
 
         entry.bind("<Return>", _finish)
         entry.bind("<FocusOut>", _finish)
@@ -3264,7 +3318,7 @@ class App(tk.Tk):
 
         # Toolbar buttons on the right
         toolbar = tk.Frame(toolbar_row, bg=theme.bg)
-        toolbar.pack(side="right", padx=(0, 8), pady=(4, 0))
+        toolbar.pack(side="right", padx=(0, 8), pady=(4, 6))
 
         btn_font = (UI_FONT, 12)
         btn_pad = 10
