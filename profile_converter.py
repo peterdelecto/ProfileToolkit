@@ -2345,24 +2345,29 @@ class ProfileDetailPanel(tk.Frame):
         known_json_vals = {jv for jv, _ in known_pairs}
 
         current_label = _get_enum_human_label(key, raw_str)
+        extra_label_to_json = {}
         if raw_str not in known_json_vals:
-            # Unknown value — append it so it's selectable
+            # Unknown value — append humanized label; remember the reverse mapping
             human_labels.append(current_label)
+            extra_label_to_json[current_label] = raw_str
 
         sv = tk.StringVar(value=current_label)
         # Fit dropdown width to longest option text
         max_len = max((len(hl) for hl in human_labels), default=10)
-        cb_width = max(max_len + 2, 12)  # padding + minimum
+        cb_width = max(max_len + 2, 12)
         cb = ttk.Combobox(row, textvariable=sv, values=human_labels,
                           state="readonly", style="Param.TCombobox",
                           font=(UI_FONT, 13), width=cb_width)
         cb.grid(row=0, column=1, sticky="w", padx=(4, 0))
 
-        # On selection change, commit the new value
         def _on_enum_change(event=None):
             selected_label = sv.get()
-            new_json_val = _get_enum_json_value(key, selected_label)
-            # Write back in the same type as original (list or scalar)
+            # Use sentinel to correctly handle empty-string JSON values
+            _sentinel = object()
+            known_reverse = _ENUM_LABEL_TO_JSON.get(key, {})
+            new_json_val = known_reverse.get(selected_label, _sentinel)
+            if new_json_val is _sentinel:
+                new_json_val = extra_label_to_json.get(selected_label, selected_label)
             if isinstance(original_value, list):
                 new_val = [new_json_val] * len(original_value)
             else:
