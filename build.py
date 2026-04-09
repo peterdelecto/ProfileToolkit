@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Build Script for Print Profile Converter
+Build Script for Profile Toolkit
 =========================================
 Creates a standalone, distributable application bundle.
 
@@ -28,10 +28,11 @@ import os
 import platform
 import shutil
 
-APP_NAME = "Print Profile Converter"
-SCRIPT = "profile_converter.py"
+APP_NAME = "Profile Toolkit"
+SCRIPT = "ProfileToolkit.py"
 ICON_MAC = "resources/AppIcon.icns"
 ICON_WIN = "resources/AppIcon.ico"
+ICON_LINUX = "resources/AppIcon.png"
 
 def run(cmd, check=True):
     """Run a command and print it."""
@@ -72,8 +73,20 @@ def build_macos():
     if os.path.exists(ICON_MAC):
         cmd.extend(["--icon", ICON_MAC])
 
+    # Bundle PNG icon sets for the UI
+    for size in ("16x16", "24x24"):
+        icon_dir = os.path.join("resources", "icons", size)
+        if os.path.isdir(icon_dir):
+            cmd.extend(["--add-data", f"{icon_dir}{os.pathsep}resources/icons/{size}"])
+
+    # Bundle app icon PNGs for window icon (taskbar / title bar)
+    for icon_png in ("AppIcon-32.png", "AppIcon-64.png"):
+        icon_path = os.path.join("resources", icon_png)
+        if os.path.exists(icon_path):
+            cmd.extend(["--add-data", f"{icon_path}{os.pathsep}resources"])
+
     # macOS-specific: ensure high-DPI support
-    cmd.extend(["--osx-bundle-identifier", "com.printprofileconverter.app"])
+    cmd.extend(["--osx-bundle-identifier", "com.profiletoolkit.app"])
 
     cmd.append(SCRIPT)
     run(cmd)
@@ -104,6 +117,18 @@ def build_windows():
     if os.path.exists(ICON_WIN):
         cmd.extend(["--icon", ICON_WIN])
 
+    # Bundle PNG icon sets for the UI
+    for size in ("16x16", "24x24"):
+        icon_dir = os.path.join("resources", "icons", size)
+        if os.path.isdir(icon_dir):
+            cmd.extend(["--add-data", f"{icon_dir}{os.pathsep}resources/icons/{size}"])
+
+    # Bundle app icon PNGs for window icon (taskbar / title bar)
+    for icon_png in ("AppIcon-32.png", "AppIcon-64.png"):
+        icon_path = os.path.join("resources", icon_png)
+        if os.path.exists(icon_path):
+            cmd.extend(["--add-data", f"{icon_path}{os.pathsep}resources"])
+
     cmd.append(SCRIPT)
     run(cmd)
 
@@ -127,6 +152,21 @@ def build_linux():
         "--noconfirm",
         "--clean",
     ]
+
+    if os.path.exists(ICON_LINUX):
+        cmd.extend(["--icon", ICON_LINUX])
+
+    # Bundle PNG icon sets for the UI
+    for size in ("16x16", "24x24"):
+        icon_dir = os.path.join("resources", "icons", size)
+        if os.path.isdir(icon_dir):
+            cmd.extend(["--add-data", f"{icon_dir}{os.pathsep}resources/icons/{size}"])
+
+    # Bundle app icon PNGs for window icon (taskbar / title bar)
+    for icon_png in ("AppIcon-32.png", "AppIcon-64.png"):
+        icon_path = os.path.join("resources", icon_png)
+        if os.path.exists(icon_path):
+            cmd.extend(["--add-data", f"{icon_path}{os.pathsep}resources"])
 
     cmd.append(SCRIPT)
     run(cmd)

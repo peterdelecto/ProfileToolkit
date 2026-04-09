@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Compare icon — Concept A: Side-by-side columns with arrows -->
+  <!-- Two document/profile columns with bidirectional arrows between them -->
+  <circle cx="32" cy="32" r="29" fill="#474647"/>
+  <g transform="translate(32, 32)">
+    <!-- Left column (document/profile) -->
+    <rect x="-22" y="-18" width="16" height="36" rx="2" fill="#c0c0c0" stroke="#888888" stroke-width="1"/>
+    <!-- Left column lines -->
+    <line x1="-20" y1="-12" x2="-10" y2="-12" stroke="#555555" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="-20" y1="-6" x2="-12" y2="-6" stroke="#555555" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="-20" y1="0" x2="-10" y2="0" stroke="#00d4a0" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="-20" y1="6" x2="-12" y2="6" stroke="#555555" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="-20" y1="12" x2="-10" y2="12" stroke="#555555" stroke-width="1.5" stroke-linecap="round"/>
+
+    <!-- Right column (document/profile) -->
+    <rect x="6" y="-18" width="16" height="36" rx="2" fill="#c0c0c0" stroke="#888888" stroke-width="1"/>
+    <!-- Right column lines -->
+    <line x1="8" y1="-12" x2="18" y2="-12" stroke="#555555" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="8" y1="-6" x2="16" y2="-6" stroke="#555555" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="8" y1="0" x2="18" y2="0" stroke="#00d4a0" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="8" y1="6" x2="16" y2="6" stroke="#555555" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="8" y1="12" x2="18" y2="12" stroke="#555555" stroke-width="1.5" stroke-linecap="round"/>
+
+    <!-- Bidirectional arrows between columns -->
+    <line x1="-4" y1="-4" x2="4" y2="-4" stroke="#00d4a0" stroke-width="1.8" stroke-linecap="round"/>
+    <polyline points="2,-7 4.5,-4 2,-1" fill="none" stroke="#00d4a0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <line x1="4" y1="4" x2="-4" y2="4" stroke="#00d4a0" stroke-width="1.8" stroke-linecap="round"/>
+    <polyline points="-2,1 -4.5,4 -2,7" fill="none" stroke="#00d4a0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

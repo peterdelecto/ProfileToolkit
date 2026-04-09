@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Gear — Heavy Win95 bevel -->
+  <g transform="translate(32, 32)">
+    <!-- Gear body — thick outline -->
+    <path d="M15.6,-3.7 L21.7,-3.4 L21.7,3.4 L15.6,3.7 L13.6,8.4 L17.8,12.9 L12.9,17.8 L8.4,13.6 L3.7,15.6 L3.4,21.7 L-3.4,21.7 L-3.7,15.6 L-8.4,13.6 L-12.9,17.8 L-17.8,12.9 L-13.6,8.4 L-15.6,3.7 L-21.7,3.4 L-21.7,-3.4 L-15.6,-3.7 L-13.6,-8.4 L-17.8,-12.9 L-12.9,-17.8 L-8.4,-13.6 L-3.7,-15.6 L-3.4,-21.7 L3.4,-21.7 L3.7,-15.6 L8.4,-13.6 L12.9,-17.8 L17.8,-12.9 L13.6,-8.4 Z"
+      fill="#b0b0b0" stroke="#333" stroke-width="2" stroke-linejoin="round"/>
+
+    <!-- Heavy bevel highlights — top-left quadrant teeth -->
+    <path d="M-3.4,-21.7 L3.4,-21.7 L3.7,-15.6" fill="none" stroke="#ededed" stroke-width="1.5" opacity="0.6" stroke-linejoin="round"/>
+    <path d="M-3.7,-15.6 L-8.4,-13.6 L-12.9,-17.8 L-17.8,-12.9" fill="none" stroke="#ededed" stroke-width="1.2" opacity="0.55" stroke-linejoin="round"/>
+    <path d="M-13.6,-8.4 L-15.6,-3.7 L-21.7,-3.4 L-21.7,3.4" fill="none" stroke="#ededed" stroke-width="1.2" opacity="0.5" stroke-linejoin="round"/>
+
+    <!-- Heavy bevel shadows — bottom-right quadrant teeth -->
+    <path d="M3.4,21.7 L-3.4,21.7 L-3.7,15.6" fill="none" stroke="#555" stroke-width="1.5" opacity="0.65" stroke-linejoin="round"/>
+    <path d="M8.4,13.6 L12.9,17.8 L17.8,12.9 L13.6,8.4" fill="none" stroke="#555" stroke-width="1.2" opacity="0.6" stroke-linejoin="round"/>
+    <path d="M15.6,3.7 L21.7,3.4 L21.7,-3.4 L15.6,-3.7" fill="none" stroke="#555" stroke-width="1.2" opacity="0.55" stroke-linejoin="round"/>
+
+    <!-- Inner ring — heavy bevel -->
+    <circle cx="0" cy="0" r="11" fill="none" stroke="#333" stroke-width="3"/>
+    <circle cx="0" cy="0" r="10" fill="#888" stroke="#a8a8a8" stroke-width="1.5"/>
+    <!-- Strong highlight arc -->
+    <path d="M-8,-6.5 A10,10 0 0,1 6.5,-8" fill="none" stroke="#ededed" stroke-width="1.5" opacity="0.55" stroke-linecap="round"/>
+    <!-- Strong shadow arc -->
+    <path d="M-6.5,8 A10,10 0 0,0 8,6.5" fill="none" stroke="#555" stroke-width="1.5" opacity="0.55" stroke-linecap="round"/>
+
+    <!-- Center hole — deep sunken -->
+    <circle cx="0" cy="0" r="5.5" fill="#333" stroke="#222" stroke-width="1.5"/>
+    <!-- Sunken bevel (top dark, bottom light) -->
+    <path d="M-4,-3.9 A5.5,5.5 0 0,1 4,-3.9" fill="none" stroke="#111" stroke-width="1" opacity="0.5"/>
+    <path d="M-4,3.9 A5.5,5.5 0 0,0 4,3.9" fill="none" stroke="#555" stroke-width="1" opacity="0.45"/>
+  </g>
+</svg>

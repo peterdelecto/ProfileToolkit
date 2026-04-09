@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Compare icon — Concept C: Balance scales -->
+  <!-- Traditional balance/scales metaphor for comparing two things -->
+  <circle cx="32" cy="32" r="29" fill="#474647"/>
+  <g transform="translate(32, 32)">
+    <!-- Central pillar -->
+    <line x1="0" y1="-18" x2="0" y2="18" stroke="#888888" stroke-width="3" stroke-linecap="round"/>
+
+    <!-- Base -->
+    <line x1="-10" y1="18" x2="10" y2="18" stroke="#b0b0b0" stroke-width="3" stroke-linecap="round"/>
+
+    <!-- Crossbeam — slightly tilted to imply comparison in progress -->
+    <line x1="-20" y1="-12" x2="20" y2="-16" stroke="#c0c0c0" stroke-width="2.5" stroke-linecap="round"/>
+
+    <!-- Fulcrum triangle -->
+    <polygon points="-4,-18 4,-18 0,-14" fill="#b0b0b0"/>
+
+    <!-- Left pan strings -->
+    <line x1="-20" y1="-12" x2="-17" y2="0" stroke="#888888" stroke-width="1.2" stroke-linecap="round"/>
+    <line x1="-20" y1="-12" x2="-23" y2="0" stroke="#888888" stroke-width="1.2" stroke-linecap="round"/>
+    <!-- Left pan -->
+    <path d="M-25,0 Q-20,4 -15,0" fill="none" stroke="#c0c0c0" stroke-width="2" stroke-linecap="round"/>
+    <!-- Left content: teal block -->
+    <rect x="-22.5" y="-3" width="5" height="3" rx="0.8" fill="#00d4a0" opacity="0.8"/>
+
+    <!-- Right pan strings -->
+    <line x1="20" y1="-16" x2="17" y2="-4" stroke="#888888" stroke-width="1.2" stroke-linecap="round"/>
+    <line x1="20" y1="-16" x2="23" y2="-4" stroke="#888888" stroke-width="1.2" stroke-linecap="round"/>
+    <!-- Right pan -->
+    <path d="M15,-4 Q20,0 25,-4" fill="none" stroke="#c0c0c0" stroke-width="2" stroke-linecap="round"/>
+    <!-- Right content: teal block -->
+    <rect x="17.5" y="-7" width="5" height="3" rx="0.8" fill="#00d4a0" opacity="0.8"/>
+  </g>
+</svg>

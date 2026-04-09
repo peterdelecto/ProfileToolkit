@@ -2,7 +2,6 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import unittest.mock as mock
-import types
 
 # Build a tkinter mock that satisfies both `import tkinter as tk` and
 # `from tkinter import ttk, filedialog, messagebox`.
@@ -28,21 +27,29 @@ tk_mock.ttk = ttk_mock
 tk_mock.filedialog = filedialog_mock
 tk_mock.messagebox = messagebox_mock
 
-# Make tk.Frame a real (stub) class so that subclasses like ProfileDetailPanel
-# are real Python types and can be instantiated with object.__new__().
-class _FakeTkFrame:
+# Make tk.Frame and tk.Toplevel real (stub) classes so that subclasses like
+# ProfileDetailPanel are real Python types and can be instantiated with object.__new__().
+class _FakeTkBase:
     def __init__(self, *args, **kwargs):
         pass
-tk_mock.Frame = _FakeTkFrame
+    def winfo_toplevel(self):
+        return self
+    def bind(self, *args, **kwargs):
+        pass
+
+tk_mock.Frame = _FakeTkBase
+tk_mock.Toplevel = _FakeTkBase
+tk_mock.Tk = _FakeTkBase
 
 sys.modules["tkinter"] = tk_mock
 sys.modules["tkinter.ttk"] = ttk_mock
 sys.modules["tkinter.filedialog"] = filedialog_mock
 sys.modules["tkinter.messagebox"] = messagebox_mock
 
-import importlib
-pc = importlib.import_module("profile_converter")
-Profile = pc.Profile
+# Import from the refactored package
+from profile_toolkit.models import Profile, ProfileEngine
+from profile_toolkit.panels import ProfileDetailPanel
+from profile_toolkit.constants import _ENUM_LABEL_TO_JSON
 
 
 def make_profile(data=None):
@@ -51,7 +58,7 @@ def make_profile(data=None):
 
 def _make_panel(profile=None):
     """Create a ProfileDetailPanel instance bypassing tkinter __init__."""
-    panel = object.__new__(pc.ProfileDetailPanel)
+    panel = object.__new__(ProfileDetailPanel)
     panel._undo_stack = []
     panel._pre_edit_modified = None
     panel.current_profile = profile
@@ -108,7 +115,6 @@ def test_undo_does_not_clear_conversion_modified():
 
 def test_parse_edit_list_length_preserved():
     """Entering 2 values for a 4-element list should pad to 4."""
-    from profile_converter import ProfileDetailPanel
     original = [0.2, 0.2, 0.2, 0.2]
     result = ProfileDetailPanel._parse_edit("0.1, 0.3", original)
     assert len(result) == 4, f"Expected 4, got {len(result)}: {result}"
@@ -119,35 +125,28 @@ def test_parse_edit_list_length_preserved():
 
 
 def test_pv_preserves_hex_color():
-    from profile_converter import ProfileEngine
-    assert ProfileEngine._pv("#FF0000") == "#FF0000"
+    assert ProfileEngine._parse_config_value("#FF0000") == "#FF0000"
 
 
 def test_pv_preserves_version_string():
-    from profile_converter import ProfileEngine
-    assert ProfileEngine._pv("1.0.3") == "1.0.3"
+    assert ProfileEngine._parse_config_value("1.0.3") == "1.0.3"
 
 
 def test_pv_preserves_gcode_string():
-    from profile_converter import ProfileEngine
     gcode = "G28 X0"
-    assert ProfileEngine._pv(gcode) == gcode
+    assert ProfileEngine._parse_config_value(gcode) == gcode
 
 
 def test_format_value_humanizes_known_enum_label():
     """_format_value with a known enum key should return the human label, not the JSON value."""
     # seam_position: "nearest" → "Nearest" in ENUM_VALUES
-    result = pc.ProfileDetailPanel._format_value("nearest", key="seam_position")
+    result = ProfileDetailPanel._format_value("nearest", key="seam_position")
     assert result == "Nearest", f"Expected 'Nearest', got {result!r}"
 
 
 def test_enum_label_to_json_round_trip():
-    """_ENUM_LABEL_TO_JSON must map human label back to raw JSON value for known enums.
-    This tests the fix that prevents unknown-enum-value corruption: when the user
-    selects 'Arachne' from the dropdown, the stored value must be 'arachne' (raw JSON),
-    not 'Arachne' (display label).
-    """
-    label_to_json = pc._ENUM_LABEL_TO_JSON
+    """_ENUM_LABEL_TO_JSON must map human label back to raw JSON value for known enums."""
+    label_to_json = _ENUM_LABEL_TO_JSON
     # wall_generator: "arachne" → "Arachne" forward, "Arachne" → "arachne" reverse
     assert "wall_generator" in label_to_json, "wall_generator must have reverse lookup"
     assert label_to_json["wall_generator"].get("Arachne") == "arachne", (

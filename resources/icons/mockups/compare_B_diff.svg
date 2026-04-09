@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Compare icon — Concept B: Diff view (split document with highlight bar) -->
+  <!-- Single document split vertically, diff-highlighted rows -->
+  <circle cx="32" cy="32" r="29" fill="#474647"/>
+  <g transform="translate(32, 32)">
+    <!-- Document body -->
+    <rect x="-20" y="-20" width="40" height="40" rx="3" fill="#c0c0c0" stroke="#888888" stroke-width="1.2"/>
+
+    <!-- Vertical split line down the center -->
+    <line x1="0" y1="-18" x2="0" y2="18" stroke="#888888" stroke-width="1.2" stroke-dasharray="3,2"/>
+
+    <!-- Row backgrounds — matching rows are neutral, differing rows are teal-tinted -->
+    <!-- Row 1: matching -->
+    <line x1="-16" y1="-13" x2="-3" y2="-13" stroke="#555555" stroke-width="2" stroke-linecap="round"/>
+    <line x1="3" y1="-13" x2="16" y2="-13" stroke="#555555" stroke-width="2" stroke-linecap="round"/>
+
+    <!-- Row 2: different — teal highlight -->
+    <rect x="-18" y="-10" width="36" height="5" rx="1" fill="#00d4a0" opacity="0.2"/>
+    <line x1="-16" y1="-7.5" x2="-4" y2="-7.5" stroke="#00d4a0" stroke-width="2" stroke-linecap="round"/>
+    <line x1="3" y1="-7.5" x2="12" y2="-7.5" stroke="#00d4a0" stroke-width="2" stroke-linecap="round"/>
+
+    <!-- Row 3: matching -->
+    <line x1="-16" y1="-2" x2="-6" y2="-2" stroke="#555555" stroke-width="2" stroke-linecap="round"/>
+    <line x1="3" y1="-2" x2="13" y2="-2" stroke="#555555" stroke-width="2" stroke-linecap="round"/>
+
+    <!-- Row 4: different — teal highlight -->
+    <rect x="-18" y="1" width="36" height="5" rx="1" fill="#00d4a0" opacity="0.2"/>
+    <line x1="-16" y1="3.5" x2="-3" y2="3.5" stroke="#00d4a0" stroke-width="2" stroke-linecap="round"/>
+    <line x1="3" y1="3.5" x2="16" y2="3.5" stroke="#00d4a0" stroke-width="2" stroke-linecap="round"/>
+
+    <!-- Row 5: matching -->
+    <line x1="-16" y1="9" x2="-6" y2="9" stroke="#555555" stroke-width="2" stroke-linecap="round"/>
+    <line x1="3" y1="9" x2="13" y2="9" stroke="#555555" stroke-width="2" stroke-linecap="round"/>
+
+    <!-- Row 6: matching -->
+    <line x1="-16" y1="14.5" x2="-8" y2="14.5" stroke="#555555" stroke-width="2" stroke-linecap="round"/>
+    <line x1="3" y1="14.5" x2="11" y2="14.5" stroke="#555555" stroke-width="2" stroke-linecap="round"/>
+  </g>
+</svg>

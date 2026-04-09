@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Stacked layers — Heavy Win95 bevel -->
+  <g transform="translate(32, 32)">
+    <!-- Gray base platform — beveled slab -->
+    <path d="M-22,16 L0,24 L22,16 L0,8 Z" fill="#a8a8a8" stroke="#333" stroke-width="1.5" stroke-linejoin="round"/>
+    <path d="M-22,16 L0,8 L22,16" fill="none" stroke="#ededed" stroke-width="1.2" opacity="0.5" stroke-linejoin="round"/>
+    <path d="M22,16 L0,24 L-22,16" fill="none" stroke="#555" stroke-width="1.2" opacity="0.6" stroke-linejoin="round"/>
+
+    <!-- Bottom layer — heavy bevel -->
+    <g transform="translate(0, 8)">
+      <path d="M-20,4 L0,12 L20,4 L0,-4 Z" fill="#C6FF00" opacity="0.5" stroke="#333" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M-20,4 L0,-4 L20,4" fill="none" stroke="#DBFF66" stroke-width="1.2" opacity="0.45" stroke-linejoin="round"/>
+      <path d="M20,4 L0,12 L-20,4" fill="none" stroke="#9ACD32" stroke-width="1.2" opacity="0.5" stroke-linejoin="round"/>
+    </g>
+    <!-- Middle layer — heavy bevel -->
+    <g transform="translate(0, -2)">
+      <path d="M-20,4 L0,12 L20,4 L0,-4 Z" fill="#C6FF00" opacity="0.7" stroke="#333" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M-20,4 L0,-4 L20,4" fill="none" stroke="#DBFF66" stroke-width="1.2" opacity="0.5" stroke-linejoin="round"/>
+      <path d="M20,4 L0,12 L-20,4" fill="none" stroke="#9ACD32" stroke-width="1.2" opacity="0.5" stroke-linejoin="round"/>
+    </g>
+    <!-- Top layer — heavy bevel -->
+    <g transform="translate(0, -12)">
+      <path d="M-20,4 L0,12 L20,4 L0,-4 Z" fill="#C6FF00" stroke="#333" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M-20,4 L0,-4 L20,4" fill="none" stroke="#DBFF66" stroke-width="1.5" opacity="0.6" stroke-linejoin="round"/>
+      <path d="M20,4 L0,12 L-20,4" fill="none" stroke="#9ACD32" stroke-width="1.5" opacity="0.55" stroke-linejoin="round"/>
+    </g>
+  </g>
+</svg>

@@ -66,7 +66,7 @@ iconutil -c icns "$ICONSET" -o "$ICNS"
 if [ -f "$ICNS" ]; then
     echo "SUCCESS: $ICNS"
     # Copy to .app bundle if it exists
-    APP_RESOURCES="$SCRIPT_DIR/../Print Profile Converter.app/Contents/Resources"
+    APP_RESOURCES="$SCRIPT_DIR/../Profile Toolkit.app/Contents/Resources"
     if [ -d "$APP_RESOURCES" ]; then
         cp "$ICNS" "$APP_RESOURCES/AppIcon.icns"
         echo "Copied to .app bundle."

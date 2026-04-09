@@ -1,0 +1,33 @@
+# Build artifacts
+build/
+dist/
+*.app/
+*.spec
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Icon build intermediates
+resources/AppIcon_1024.png
+resources/AppIcon_preview.png
+resources/appicon_preview_sizes.png
+resources/icons/preview_sheet.png
+resources/icons/comparison_sheet.png
+
+# Working docs (not part of the app)
+docs/
+CARRY_FORWARD.md
+CODE_AUDIT.md
+prompt_*.md
+ux_*.md
+theme_mockups.html

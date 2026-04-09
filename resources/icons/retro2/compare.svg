@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Balance scales — Heavy Win95 bevel -->
+  <g transform="translate(32, 32)">
+    <!-- Central pillar — thick beveled bar -->
+    <rect x="-2.5" y="-18" width="5" height="36" fill="#b0b0b0" stroke="#333" stroke-width="1.5"/>
+    <line x1="-2.5" y1="-18" x2="-2.5" y2="18" stroke="#ededed" stroke-width="1.2" opacity="0.6"/>
+    <line x1="2.5" y1="-18" x2="2.5" y2="18" stroke="#555" stroke-width="1.2" opacity="0.7"/>
+
+    <!-- Base — heavy beveled block -->
+    <rect x="-12" y="16" width="24" height="5" rx="1" fill="#c0c0c0" stroke="#333" stroke-width="1.5"/>
+    <line x1="-12" y1="16" x2="12" y2="16" stroke="#ededed" stroke-width="1.2" opacity="0.7"/>
+    <line x1="-12" y1="16" x2="-12" y2="21" stroke="#ededed" stroke-width="1" opacity="0.5"/>
+    <line x1="12" y1="16" x2="12" y2="21" stroke="#555" stroke-width="1.2" opacity="0.7"/>
+    <line x1="-12" y1="21" x2="12" y2="21" stroke="#555" stroke-width="1.2" opacity="0.7"/>
+
+    <!-- Crossbeam — thick beveled, tilted -->
+    <line x1="-21" y1="-12" x2="21" y2="-16" stroke="#333" stroke-width="5.5" stroke-linecap="round"/>
+    <line x1="-21" y1="-12" x2="21" y2="-16" stroke="#c0c0c0" stroke-width="3.5" stroke-linecap="round"/>
+    <line x1="-21" y1="-13.2" x2="21" y2="-17.2" stroke="#ededed" stroke-width="1" opacity="0.6" stroke-linecap="round"/>
+    <line x1="-21" y1="-10.8" x2="21" y2="-14.8" stroke="#555" stroke-width="1" opacity="0.6" stroke-linecap="round"/>
+
+    <!-- Fulcrum triangle — beveled -->
+    <polygon points="-5.5,-18 5.5,-18 0,-12.5" fill="#c0c0c0" stroke="#333" stroke-width="1.5"/>
+    <line x1="-5.5" y1="-18" x2="0" y2="-12.5" stroke="#ededed" stroke-width="0.8" opacity="0.5"/>
+    <line x1="5.5" y1="-18" x2="0" y2="-12.5" stroke="#555" stroke-width="0.8" opacity="0.6"/>
+
+    <!-- Left pan strings -->
+    <line x1="-21" y1="-12" x2="-17" y2="1" stroke="#888" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="-21" y1="-12" x2="-25" y2="1" stroke="#888" stroke-width="1.5" stroke-linecap="round"/>
+    <!-- Left pan — heavy beveled tray -->
+    <path d="M-27,1 L-15,1 L-17,5.5 L-25,5.5 Z" fill="#c0c0c0" stroke="#333" stroke-width="1.5" stroke-linejoin="round"/>
+    <line x1="-27" y1="1" x2="-15" y2="1" stroke="#ededed" stroke-width="1" opacity="0.6"/>
+    <line x1="-25" y1="5.5" x2="-17" y2="5.5" stroke="#555" stroke-width="1" opacity="0.6"/>
+    <line x1="-27" y1="1" x2="-25" y2="5.5" stroke="#ededed" stroke-width="0.8" opacity="0.4"/>
+    <line x1="-15" y1="1" x2="-17" y2="5.5" stroke="#555" stroke-width="0.8" opacity="0.5"/>
+    <!-- Left teal block — beveled -->
+    <rect x="-24" y="-3" width="7" height="4" rx="0.5" fill="#C6FF00" stroke="#333" stroke-width="1.2"/>
+    <line x1="-24" y1="-3" x2="-17" y2="-3" stroke="#DBFF66" stroke-width="0.8" opacity="0.6"/>
+    <line x1="-17" y1="-3" x2="-17" y2="1" stroke="#9ACD32" stroke-width="0.8" opacity="0.5"/>
+
+    <!-- Right pan strings -->
+    <line x1="21" y1="-16" x2="17" y2="-3" stroke="#888" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="21" y1="-16" x2="25" y2="-3" stroke="#888" stroke-width="1.5" stroke-linecap="round"/>
+    <!-- Right pan — heavy beveled tray -->
+    <path d="M15,-3 L27,-3 L25,1.5 L17,1.5 Z" fill="#c0c0c0" stroke="#333" stroke-width="1.5" stroke-linejoin="round"/>
+    <line x1="15" y1="-3" x2="27" y2="-3" stroke="#ededed" stroke-width="1" opacity="0.6"/>
+    <line x1="17" y1="1.5" x2="25" y2="1.5" stroke="#555" stroke-width="1" opacity="0.6"/>
+    <line x1="15" y1="-3" x2="17" y2="1.5" stroke="#ededed" stroke-width="0.8" opacity="0.4"/>
+    <line x1="27" y1="-3" x2="25" y2="1.5" stroke="#555" stroke-width="0.8" opacity="0.5"/>
+    <!-- Right teal block — beveled -->
+    <rect x="17" y="-7" width="7" height="4" rx="0.5" fill="#C6FF00" stroke="#333" stroke-width="1.2"/>
+    <line x1="17" y1="-7" x2="24" y2="-7" stroke="#DBFF66" stroke-width="0.8" opacity="0.6"/>
+    <line x1="24" y1="-7" x2="24" y2="-3" stroke="#9ACD32" stroke-width="0.8" opacity="0.5"/>
+  </g>
+</svg>
