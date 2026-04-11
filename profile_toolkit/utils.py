@@ -19,6 +19,14 @@ from .constants import (
 logger = logging.getLogger(__name__)
 
 
+def user_error(what: str, exc: Exception | str, tip: str = "") -> str:
+    """Format a user-facing error message with optional recovery tip."""
+    msg = f"{what}\n\n{exc}"
+    if tip:
+        msg += f"\n\n{tip}"
+    return msg
+
+
 def detect_material(profile_or_data: dict | object) -> str:
     """Normalize material from a Profile or raw data dict (e.g. 'PLA', 'PETG-CF', 'General')."""
     data = getattr(profile_or_data, "data", profile_or_data)
@@ -110,9 +118,21 @@ def get_recommendation_info(key: str) -> str | None:
 def check_value_range(
     key: str, value: float | list | None, material: str = "General"
 ) -> str | None:
-    """Returns 'low', 'high', 'ok', or None. For lists, checks first element."""
+    """Returns 'low', 'high', 'ok', or None.
+
+    For lists, checks ALL elements and returns the worst status (low/high > ok).
+    """
     if isinstance(value, list):
-        value = value[0] if value else None
+        if not value:
+            return None
+        worst = None
+        for elem in value:
+            status = check_value_range(key, elem, material)
+            if status in ("low", "high"):
+                return status  # short-circuit on first out-of-range
+            if status is not None:
+                worst = status
+        return worst
     if value is None:
         return None
     try:
@@ -325,12 +345,14 @@ def parse_printer_nozzle(raw: str) -> tuple[str, str]:
         # Check for " HF" suffix without digits (Prusa HF variant)
         if s.upper().endswith(" HF"):
             s = s[:-3].strip()
-            nozzle = ""
             key = s.upper()
             printer = _MACHINE_ALIASES.get(key, s)
-            return printer + " HF", nozzle
+            return printer + " HF", "0.4"
 
     # Expand machine alias
     key = s.strip().upper()
     printer = _MACHINE_ALIASES.get(key, s.strip())
+    # Standard nozzle is 0.4 mm — default when not specified
+    if not nozzle:
+        nozzle = "0.4"
     return printer, nozzle

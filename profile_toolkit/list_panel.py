@@ -340,7 +340,7 @@ class ProfileListPanel(tk.Frame):
         w = self.tree.column(col_id, "width")
         full = self._col_labels_full[col_id]
         short = self._col_labels_short[col_id]
-        font = tkfont.nametofont("TkDefaultFont")
+        font = tkfont.Font(family=UI_FONT, size=13)
         # Add padding for sort arrow + margins
         if font.measure(full) + 24 > w and short != full:
             return short
@@ -417,14 +417,14 @@ class ProfileListPanel(tk.Frame):
         "OrcaSlicer": "O",
     }
 
-    @staticmethod
-    def _create_slicer_badges() -> dict[str, tk.PhotoImage]:
+    def _create_slicer_badges(self) -> dict[str, tk.PhotoImage]:
         """Generate 20x20 colored circle badge images with slicer letters."""
+        theme = self.theme
         badges = {}
         specs = {
-            "PrusaSlicer": ("#FF7B15", "P"),
-            "BambuStudio": ("#028A0F", "B"),
-            "OrcaSlicer": ("#2196F3", "O"),
+            "PrusaSlicer": (theme.badge_prusa, "P"),
+            "BambuStudio": (theme.badge_bambu, "B"),
+            "OrcaSlicer": (theme.badge_orca, "O"),
         }
         size = 20
         for origin, (color, letter) in specs.items():
@@ -690,6 +690,8 @@ class ProfileListPanel(tk.Frame):
 
     def _hide_overlay(self) -> None:
         if self._overlay:
+            # Stop spinner animation before destroying overlay
+            self._spinner_idx = 0
             try:
                 self._overlay.destroy()
             except tk.TclError:

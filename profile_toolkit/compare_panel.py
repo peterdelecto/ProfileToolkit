@@ -237,6 +237,7 @@ class ComparePanel(tk.Frame):
             top = self.winfo_toplevel()
         except (tk.TclError, RuntimeError):
             self._bind_id_ctrl_f = None
+            self._bind_id_ctrl_z = None
             self._bind_id_key_d = None
             return
         _mod = "Command" if _PLATFORM == "Darwin" else "Control"
@@ -246,6 +247,12 @@ class ComparePanel(tk.Frame):
             except tk.TclError:
                 pass
             self._bind_id_ctrl_f = None
+        if getattr(self, "_bind_id_ctrl_z", None):
+            try:
+                top.unbind(f"<{_mod}-z>", self._bind_id_ctrl_z)
+            except tk.TclError:
+                pass
+            self._bind_id_ctrl_z = None
         if getattr(self, "_bind_id_key_d", None):
             try:
                 top.unbind("<Key-d>", self._bind_id_key_d)
@@ -412,6 +419,7 @@ class ComparePanel(tk.Frame):
         _mod = "Command" if _PLATFORM == "Darwin" else "Control"
         top = self.winfo_toplevel()
         self._bind_id_ctrl_f = top.bind(f"<{_mod}-f>", lambda e: self._focus_search())
+        self._bind_id_ctrl_z = top.bind(f"<{_mod}-z>", self._on_undo)
         self._bind_id_key_d = top.bind(
             "<Key-d>",
             lambda e: self._on_key_d(),
@@ -1457,6 +1465,9 @@ class ComparePanel(tk.Frame):
                 sec_hdr.bind("<Button-1>", _toggle)
                 chevron_label.bind("<Button-1>", _toggle)
                 sec_name_label.bind("<Button-1>", _toggle)
+                # Keyboard accessibility for section collapse/expand
+                sec_hdr.bind("<Return>", _toggle)
+                sec_hdr.bind("<space>", _toggle)
 
                 bind_scroll(sec_hdr, canvas)
                 for ch in sec_hdr.winfo_children():
@@ -1684,7 +1695,7 @@ class ComparePanel(tk.Frame):
         if val_a is None and val_b is None and not self._show_empty:
             return False
 
-        # Search filter
+        # Search filter — match UI label only (not raw JSON key, which exposes internals)
         if search_text and search_text not in ui_label.lower():
             return False
 
@@ -1792,6 +1803,7 @@ class ComparePanel(tk.Frame):
                 )
                 dot.create_oval(1, 1, 7, 7, fill=theme.modified, outline="")
                 dot.pack(side="left", padx=(4, 0))
+                _Tooltip(dot, "Unsaved change", theme)
                 bind_scroll(dot, canvas)
                 param_padx_left = 4
 
@@ -1862,7 +1874,7 @@ class ComparePanel(tk.Frame):
                 row=0, column=4, sticky="ns"
             )
 
-            # Column 5: Copy arrow B→A (hidden when source value is None)
+            # Column 5: Copy arrow B→A (symmetric with A→B: show when diff and source not None)
             arrow_ba_cell = tk.Frame(row, bg=bg)
             arrow_ba_cell.grid(row=0, column=5, sticky="nsew")
             if is_diff and val_b is not None:
@@ -2445,12 +2457,13 @@ class ComparePanel(tk.Frame):
                 for entry in self._undo_stack
                 if id(entry[0]) not in saved_profiles
             ]
-            # Rebuild pending_keys from remaining undo entries
+            # Rebuild pending_keys from remaining undo entries (clean slate
+            # avoids phantom counts from partially-saved profiles)
             new_pending: Counter[str] = Counter()
             for entry in self._undo_stack:
                 new_pending[entry[1]] += 1
-            self._pending_keys = new_pending
-            self._pending_count = sum(new_pending.values())
+            self._pending_keys = +new_pending  # unary + strips zero/negative counts
+            self._pending_count = sum(self._pending_keys.values())
 
         if not self._undo_stack:
             self._pending_keys.clear()
@@ -2753,8 +2766,12 @@ class ComparePanel(tk.Frame):
 
                     def _undo(p=_prof, idx=_idx) -> None:
                         p.restore_snapshot(idx)
-                        # Also pop from local undo stack if it matches
-                        if self._undo_stack and self._undo_stack[-1][0] is p:
+                        # Pop from local undo stack if it matches profile AND changelog index
+                        if (
+                            self._undo_stack
+                            and self._undo_stack[-1][0] is p
+                            and len(p.changelog) - 1 == idx
+                        ):
                             _, undo_key, _, _ = self._undo_stack.pop()
                             self._pending_keys[undo_key] -= 1
                             if self._pending_keys[undo_key] <= 0:

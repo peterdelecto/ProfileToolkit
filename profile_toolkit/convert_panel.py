@@ -212,7 +212,7 @@ class ConvertDetailPanel(tk.Frame):
         # Update convert button with profile name
         name = profile.name or "Profile"
         short_name = name[:25] + "…" if len(name) > 25 else name
-        self._btn_convert.configure(text=f"Convert "{short_name}"")
+        self._btn_convert.configure(text=f"Convert \u201c{short_name}\u201d")
 
         # Update header
         self._lbl_name.configure(text=profile.name or "(unnamed)")
@@ -309,13 +309,15 @@ class ConvertDetailPanel(tk.Frame):
             return
         self._dropped = list(dropped)
         self._missing = list(missing)
+        self._missing_set: set[str] = set(missing)
         self._warnings = list(warnings)
         # Re-apply any filled values that still exist in the target schema
         for k, v in list(self._filled.items()):
-            if k in self._converted.data or k in set(self._missing):
+            if k in self._converted.data or k in self._missing_set:
                 self._converted.data[k] = v
-                if k in self._missing:
-                    self._missing.remove(k)
+                if k in self._missing_set:
+                    self._missing_set.discard(k)
+                    self._missing = [m for m in self._missing if m != k]
             else:
                 # Stale key from different conversion path — drop it
                 del self._filled[k]
@@ -357,11 +359,18 @@ class ConvertDetailPanel(tk.Frame):
 
         # #3/#5/#16: Show conversion warnings as a banner
         if self._warnings:
-            warn_frame = tk.Frame(body, bg=theme.compare_changed_bg)
-            warn_frame.pack(fill="x", pady=(0, 6))
-            tk.Frame(warn_frame, bg=theme.warning, width=4).place(
+            warn_outer = tk.Frame(body, bg=theme.compare_changed_bg)
+            warn_outer.pack(fill="x", pady=(0, 6))
+            tk.Frame(warn_outer, bg=theme.warning, width=4).place(
                 x=0, y=0, relheight=1.0
             )
+            # Cap warning banner height to avoid overflow with many warnings
+            warn_frame = warn_outer
+            if len(self._warnings) > 5:
+                warn_frame = tk.Frame(warn_outer, bg=theme.compare_changed_bg)
+                warn_frame.pack(fill="x")
+                warn_outer.configure(height=150)
+                warn_outer.pack_propagate(False)
             for w_msg in self._warnings:
                 tk.Label(
                     warn_frame,
@@ -766,7 +775,7 @@ class ConvertDetailPanel(tk.Frame):
         except ValueError:
             parsed_val = val
 
-        # #15: Basic temperature range validation
+        # #15: Basic temperature range validation — block obviously wrong values
         key_lower = key.lower()
         if isinstance(parsed_val, (int, float)):
             if "temp" in key_lower and not (-50 <= parsed_val <= 500):
@@ -775,6 +784,8 @@ class ConvertDetailPanel(tk.Frame):
                     f"Temperature {parsed_val}°C seems unusual (expected -50 to 500).",
                     parent=self,
                 )
+                self._rebuild(reset_scroll=False)
+                return
             elif (
                 "speed" in key_lower
                 and "fan" in key_lower
@@ -785,6 +796,8 @@ class ConvertDetailPanel(tk.Frame):
                     f"Fan speed {parsed_val}% seems unusual (expected 0–100).",
                     parent=self,
                 )
+                self._rebuild(reset_scroll=False)
+                return
 
         if original is not None and parsed_val == original:
             # Value unchanged — don't mark as edited

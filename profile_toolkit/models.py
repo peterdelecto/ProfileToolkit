@@ -8,6 +8,8 @@ import logging
 import os
 import re
 import xml.etree.ElementTree as ET
+
+_RE_AT_SUFFIX = re.compile(r"\s*@.*$")
 import zipfile
 import zlib
 from copy import deepcopy
@@ -218,7 +220,7 @@ class PresetIndex:
         """Look up a preset by name, falling back to @suffix-stripped match."""
         data = self._by_name.get(name)
         if data is None:
-            base = re.sub(r"\s*@.*$", "", name)
+            base = _RE_AT_SUFFIX.sub("", name)
             data = self._by_name.get(base)
         return data
 
@@ -650,19 +652,23 @@ class Profile:
             return self.nozzle_group
         elif group_by == "status":
             if self.modified:
-                return "Universal"
+                return "Modified"
             elif self.is_locked:
                 return "Printer-Locked"
             else:
-                return "Modified"
+                return "Universal"
         return ""  # "none" — no grouping
 
-    def _flatten_into_data(self) -> None:
+    def _flatten_into_data(self) -> bool:
         """Merge all inherited params into data and drop 'inherits' so the
         profile is fully self-contained.  This is a ONE-WAY operation — once
         flattened, the inheritance chain cannot be restored.  Ensures the
         profile displays correctly and exports with all parameters even when
-        the parent profile is not available."""
+        the parent profile is not available.
+
+        Returns True if flattening occurred, False if resolved_data was None
+        (parent not found / never resolved).
+        """
         if self.resolved_data:
             for k, v in self.resolved_data.items():
                 if k not in self.data:
@@ -671,6 +677,8 @@ class Profile:
             self.inherited_keys = set()
             self.resolved_data = None
             self.inheritance_chain = []
+            return True
+        return False
 
     def make_universal(self) -> None:
         """Remove printer-specific restrictions from a profile.
@@ -698,8 +706,12 @@ class Profile:
             ),
             "_inherits": self.data.get("inherits"),
         }
-        self._flatten_into_data()
-
+        if not self._flatten_into_data() and self.data.get("inherits"):
+            logger.warning(
+                "make_universal: parent not resolved for '%s'; "
+                "inherited params may be missing",
+                self.name,
+            )
         old_printers = self.data.get("compatible_printers", [])
         old_psid = self.data.get("printer_settings_id", "")
         self.data["compatible_printers"] = []
@@ -747,8 +759,12 @@ class Profile:
             ),
             "_inherits": self.data.get("inherits"),
         }
-        self._flatten_into_data()
-
+        if not self._flatten_into_data() and self.data.get("inherits"):
+            logger.warning(
+                "retarget: parent not resolved for '%s'; "
+                "inherited params may be missing",
+                self.name,
+            )
         old_printers = self.data.get("compatible_printers", [])
         self.data["compatible_printers"] = printers
         if "compatible_printers_condition" in self.data:
@@ -1156,11 +1172,18 @@ class ProfileEngine:
                 )
             return [Profile(data, path, "json", type_hint)]
         elif isinstance(data, list):
-            profiles = [
-                Profile(d, path, "json", type_hint)
-                for d in data
-                if isinstance(d, dict) and _is_profile(d)
-            ]
+            seen_names: set[str] = set()
+            profiles = []
+            for d in data:
+                if isinstance(d, dict) and _is_profile(d):
+                    name = d.get("name", "")
+                    if name in seen_names:
+                        logger.debug(
+                            "Skipping duplicate profile name '%s' in JSON array", name
+                        )
+                        continue
+                    seen_names.add(name)
+                    profiles.append(Profile(d, path, "json", type_hint))
             if not profiles and data:
                 raise ValueError(
                     f"{os.path.basename(path)} contains JSON but no recognized "
@@ -1511,14 +1534,15 @@ class ProfileEngine:
             try:
                 return json.loads(raw_string)
             except (json.JSONDecodeError, ValueError) as e:
-                logger.debug("Failed to parse JSON value '%s': %s", raw_string, e)
+                logger.warning("Failed to parse JSON value '%s': %s", raw_string, e)
         return raw_string
 
     @staticmethod
     def load_ini(path: str, type_hint: str = None) -> list:
         """Load a PrusaSlicer-style .ini profile (flat key=value, one profile per file)."""
         _MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
-        raw_bytes = open(path, "rb").read(_MAX_FILE_SIZE + 1)
+        with open(path, "rb") as fh:
+            raw_bytes = fh.read(_MAX_FILE_SIZE + 1)
         if len(raw_bytes) > _MAX_FILE_SIZE:
             raise ValueError(
                 f"File too large: {len(raw_bytes)} bytes (max {_MAX_FILE_SIZE})"

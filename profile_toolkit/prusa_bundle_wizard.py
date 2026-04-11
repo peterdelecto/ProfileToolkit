@@ -11,7 +11,7 @@ from typing import Any, Callable, Optional
 from .constants import UI_FONT
 from .theme import Theme
 from .models import ProfileEngine
-from .utils import lighten_color
+from .utils import lighten_color, user_error
 from .widgets import make_btn, ScrollableFrame
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ class PrusaBundleWizard(tk.Toplevel):
         # Show loading state while parsing bundle in background
         self._loading_label = tk.Label(
             self._body,
-            text="Loading bundle...",
+            text="Loading bundle... (0s)",
             bg=theme.bg,
             fg=theme.fg,
             font=(UI_FONT, 14),
@@ -64,6 +64,7 @@ class PrusaBundleWizard(tk.Toplevel):
 
         self._parse_result: list | None = None
         self._parse_error: str | None = None
+        self._parse_done = threading.Event()
         self._poll_count: int = 0
         self._bundle_path = bundle_path
 
@@ -82,6 +83,8 @@ class PrusaBundleWizard(tk.Toplevel):
                 logger.error("Failed to parse bundle: %s", e, exc_info=True)
                 self._parse_error = str(e)
                 self._parse_result = {}  # signals completion with error
+            finally:
+                self._parse_done.set()
 
         threading.Thread(target=_parse, daemon=True).start()
         self._poll_parse()
@@ -91,16 +94,27 @@ class PrusaBundleWizard(tk.Toplevel):
     def _poll_parse(self) -> None:
         """Poll for background parse completion from the main thread."""
         self._poll_count += 1
-        if self._poll_count > 300:  # 30 seconds at 100ms intervals
+        if self._poll_count > 600:  # 60 seconds at 100ms intervals
             self._show_error(
                 "Bundle parsing timed out. The file may be too large or corrupted."
             )
             return
-        if self._parse_result is None:
+        if not self._parse_done.is_set():
+            elapsed = self._poll_count // 10
+            try:
+                self._loading_label.configure(text=f"Loading bundle... ({elapsed}s)")
+            except tk.TclError:
+                pass
             self.after(100, self._poll_parse)
             return
         if self._parse_error:
-            self._show_error(f"Failed to parse bundle:\n{self._parse_error}")
+            self._show_error(
+                user_error(
+                    "Could not read this bundle file.",
+                    self._parse_error,
+                    "It may be corrupted or unsupported.",
+                )
+            )
             return
         sections, all_names = self._parse_result
         self._sections = sections
@@ -219,7 +233,7 @@ class PrusaBundleWizard(tk.Toplevel):
         sa.pack(side="left", padx=(0, 4))
         sn = make_btn(
             ctrl,
-            "Select None",
+            "Deselect All",
             self._select_none,
             bg=theme.bg4,
             fg=theme.btn_fg,
@@ -287,8 +301,10 @@ class PrusaBundleWizard(tk.Toplevel):
         self._tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        # Track checked state: all filament names start checked
-        self._checked: set[str] = set()
+        # Track checked state: all filaments start CHECKED (user can deselect individually)
+        self._checked: set[str] = {
+            name for names in self._groups.values() for name in names
+        }
 
         self._populate_tree(self._groups)
         self._update_count()
@@ -387,13 +403,22 @@ class PrusaBundleWizard(tk.Toplevel):
         query = self._search_var.get().lower()
         if not query:
             self._populate_tree(self._groups)
+            self._update_count()
             return
         filtered = {}
+        match_count = 0
         for base, variants in self._groups.items():
             matches = [v for v in variants if query in v.lower()]
             if matches:
                 filtered[base] = matches
+                match_count += len(matches)
         self._populate_tree(filtered)
+        # Show match count during search
+        if hasattr(self, "_count_lbl"):
+            checked = len(self._checked)
+            self._count_lbl.configure(
+                text=f"{checked} selected \u00b7 {match_count} matching"
+            )
 
     def _update_count(self) -> None:
         count = len(self._checked)

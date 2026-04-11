@@ -621,8 +621,12 @@ def make_btn(
         lbl_kw["compound"] = compound
     lbl = tk.Label(wrapper, **lbl_kw)
     lbl.pack(side="top")
-    lbl.bind("<Button-1>", lambda e: command())
-    wrapper.bind("<Button-1>", lambda e: command())
+
+    def _on_click(e: tk.Event) -> None:
+        command()
+
+    lbl.bind("<Button-1>", _on_click)
+    wrapper.bind("<Button-1>", lambda e: None)  # absorb click, label handler fires
     wrapper.bind("<Return>", lambda e: command() if command else None)
     wrapper.bind("<space>", lambda e: command() if command else None)
 

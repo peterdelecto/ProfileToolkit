@@ -6,6 +6,7 @@ import logging
 import math
 import os
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import ttk, filedialog, messagebox
 from typing import Any, Callable, Optional
 
@@ -112,10 +113,24 @@ class ProfileDetailPanel(tk.Frame):
         self._current_material = "General"
         self._indicator_frames = {}
         self._scroll_bound = False
+        self._after_ids: list[str] = []
         self._show_placeholder()
+
+        self.bind("<Destroy>", self._on_destroy_detail_panel, add="+")
 
         # Note: Ctrl+Z / Cmd+Z is bound by App._bind_global_undo which
         # dispatches to the correct panel (ComparePanel or DetailPanel).
+
+    def _on_destroy_detail_panel(self, event=None) -> None:
+        """Clean up after() callbacks and traces on panel destruction."""
+        if event and event.widget is not self:
+            return
+        for after_id in self._after_ids:
+            try:
+                self.after_cancel(after_id)
+            except (tk.TclError, ValueError):
+                pass
+        self._after_ids.clear()
 
     def _show_placeholder(self, text: Optional[str] = None) -> None:
         for w in self.winfo_children():
@@ -793,7 +808,7 @@ class ProfileDetailPanel(tk.Frame):
                 orca_badge = tk.Label(
                     tab_frame,
                     text="O",
-                    bg="#028A0F",
+                    bg=theme.badge_orca,
                     fg=theme.accent_fg,
                     font=(UI_FONT, 9, "bold"),
                     padx=3,
@@ -1071,11 +1086,11 @@ class ProfileDetailPanel(tk.Frame):
                 return str(value[0])
         return str(value) if not isinstance(value, list) else None
 
-    # Badge colors and short labels for slicer tags
-    _SLICER_BADGE_COLORS = {
-        "Prusa": "#FF7B15",
-        "Bambu": "#028A0F",
-        "Orca": "#2196F3",
+    # Badge colors — use theme tokens (theme.badge_prusa/bambu/orca) at render time
+    _SLICER_BADGE_LABELS_MAP = {
+        "Prusa": "badge_prusa",
+        "Bambu": "badge_bambu",
+        "Orca": "badge_orca",
     }
     _SLICER_BADGE_LABELS = {
         "Prusa": "P",
@@ -1400,9 +1415,11 @@ class ProfileDetailPanel(tk.Frame):
             extra_label_to_json[current_label] = raw_str
 
         value_var = tk.StringVar(value=current_label)
-        # Fit dropdown width to longest option text, minimum 14 chars
-        max_len = max((len(hl) for hl in human_labels), default=10)
-        cb_width = max(max_len + 2, 14)
+        # Fit dropdown width to longest option text using font measurement
+        cb_font = tkfont.Font(family=UI_FONT, size=13)
+        max_px = max((cb_font.measure(hl) for hl in human_labels), default=80)
+        avg_char_px = max(cb_font.measure("0"), 1)
+        cb_width = max(max_px // avg_char_px + 3, 14)
         combobox = ttk.Combobox(
             row,
             textvariable=value_var,

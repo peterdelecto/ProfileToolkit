@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import tempfile
+import time
 from typing import TYPE_CHECKING
 
 from .constants import _PLATFORM
@@ -20,14 +21,33 @@ logger = logging.getLogger(__name__)
 
 def _config_base_dir() -> str:
     """Platform-aware base directory for app config/state files."""
-    # Legacy name "PrintProfileConverter" kept for backward compatibility with existing user state
     if _PLATFORM == "Darwin":
-        return os.path.expanduser("~/Library/Application Support/PrintProfileConverter")
+        base = os.path.expanduser("~/Library/Application Support")
     elif _PLATFORM == "Windows":
-        return os.path.join(
-            os.environ.get("APPDATA", os.path.expanduser("~")), "PrintProfileConverter"
-        )
-    return os.path.expanduser("~/.config/PrintProfileConverter")
+        base = os.environ.get("APPDATA", os.path.expanduser("~"))
+    else:
+        base = os.path.expanduser("~/.config")
+
+    new_path = os.path.join(base, "ProfileToolkit")
+    old_path = os.path.join(base, "PrintProfileConverter")
+
+    # Migrate legacy directory if new one doesn't exist yet
+    if os.path.isdir(old_path) and not os.path.isdir(new_path):
+        try:
+            import shutil
+
+            shutil.move(old_path, new_path)
+            logger.info("Migrated config dir: %s -> %s", old_path, new_path)
+        except OSError as exc:
+            logger.warning("Could not migrate config dir: %s", exc)
+            return old_path
+
+    # Prefer new path; fall back to old if new doesn't exist but old does
+    if os.path.isdir(new_path):
+        return new_path
+    if os.path.isdir(old_path):
+        return old_path
+    return new_path
 
 
 def online_import_prefs_path() -> str:
@@ -51,8 +71,14 @@ def save_online_prefs(prefs: dict) -> None:
     path = online_import_prefs_path()
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(prefs, f, indent=2)
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(prefs, f, indent=2)
+            os.replace(tmp, path)
+        except BaseException:
+            os.unlink(tmp)
+            raise
     except OSError as exc:
         logger.warning("Could not save online import prefs: %s", exc)
 
@@ -82,6 +108,15 @@ def save_profile_state(profile: Profile) -> None:
             continue
         ts, action, details = entry[0], entry[1], entry[2]
         snapshot = entry[3] if len(entry) > 3 else None
+        # Validate snapshot is JSON-serializable before including
+        if snapshot is not None:
+            try:
+                json.dumps(snapshot)
+            except (TypeError, ValueError):
+                logger.debug(
+                    "Stripping non-serializable snapshot for action '%s'", action
+                )
+                snapshot = None
         changelog_data.append(
             {
                 "ts": ts,
@@ -96,6 +131,7 @@ def save_profile_state(profile: Profile) -> None:
         "modified": profile.modified,
         "changelog": changelog_data,
         "compatible_printers": profile.data.get("compatible_printers"),
+        "saved_at": time.time(),
     }
     try:
         os.makedirs(os.path.dirname(state_path), exist_ok=True)
@@ -143,9 +179,9 @@ def restore_profile_state(profiles: list[Profile]) -> None:
             profile.modified = True
         saved_log = state.get("changelog", [])
         if saved_log:
-            profile.changelog = []
+            restored_entries = []
             for entry in saved_log:
-                profile.changelog.append(
+                restored_entries.append(
                     (
                         entry.get("ts", ""),
                         entry.get("action", ""),
@@ -153,12 +189,34 @@ def restore_profile_state(profiles: list[Profile]) -> None:
                         entry.get("snapshot"),
                     )
                 )
+            # Merge: keep existing in-memory entries, prepend restored ones (deduplicated)
+            existing = {
+                (ts, action, details) for ts, action, details, *_ in profile.changelog
+            }
+            deduped = [
+                e for e in restored_entries if (e[0], e[1], e[2]) not in existing
+            ]
+            profile.changelog = deduped + profile.changelog
             if profile.modified:
                 reapply_unlock_state(profile, state)
 
 
 def reapply_unlock_state(profile: Profile, state: dict) -> None:
     """Walk the changelog backwards and re-apply the most recent unlock/retarget."""
+    saved_at = state.get("saved_at")
+    if saved_at and profile.source_path and os.path.exists(profile.source_path):
+        try:
+            file_mtime = os.path.getmtime(profile.source_path)
+            if file_mtime > saved_at:
+                logger.warning(
+                    "Profile '%s' on disk is newer than saved state "
+                    "(file modified %.0fs after state was saved). "
+                    "State will be applied but may be stale.",
+                    profile.name,
+                    file_mtime - saved_at,
+                )
+        except OSError:
+            pass
     saved_log = state.get("changelog", [])
     if not isinstance(saved_log, list):
         return
@@ -182,3 +240,31 @@ def reapply_unlock_state(profile: Profile, state: dict) -> None:
                 return
     except (TypeError, KeyError, AttributeError):
         pass
+
+
+def cleanup_stale_state(max_age_days: int = 90) -> int:
+    """Remove state files whose source profiles no longer exist on disk.
+
+    Returns count of files removed.
+    """
+    sdir = state_dir()
+    if not os.path.isdir(sdir):
+        return 0
+    removed = 0
+    cutoff = time.time() - (max_age_days * 86400)
+    for fname in os.listdir(sdir):
+        if not fname.endswith(".json"):
+            continue
+        fp = os.path.join(sdir, fname)
+        try:
+            with open(fp, "r", encoding="utf-8") as f:
+                state = json.load(f)
+            src = state.get("source_path", "")
+            if src and not os.path.exists(src) and os.path.getmtime(fp) < cutoff:
+                os.unlink(fp)
+                removed += 1
+        except (json.JSONDecodeError, OSError, KeyError):
+            continue
+    if removed:
+        logger.info("Cleaned up %d stale state files", removed)
+    return removed

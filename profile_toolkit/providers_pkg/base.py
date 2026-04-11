@@ -55,7 +55,7 @@ class OnlineProfileEntry:
         self.material = material
         self.brand = brand
         self.printer = printer
-        self.nozzle = ""
+        self.nozzle = "0.4"  # standard nozzle default
         self.slicer = slicer
         self.url = url
         self.description = description
@@ -165,7 +165,7 @@ class OnlineProvider:
                     provider_id=d.get("provider_id", ""),
                     metadata=d.get("metadata", {}),
                 )
-                e.nozzle = d.get("nozzle", "")
+                e.nozzle = d.get("nozzle", "") or "0.4"
                 entries.append(e)
             return entries
         except (OSError, json.JSONDecodeError, KeyError):
@@ -530,7 +530,8 @@ class OnlineProvider:
                 if e.code >= 500 and attempt < retries:
                     import time as _time
 
-                    _time.sleep(2)
+                    delay = 2 * (2**attempt)  # exponential backoff: 2s, 4s, 8s...
+                    _time.sleep(delay)
                     last_err = e
                     continue
                 raise

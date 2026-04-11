@@ -2,7 +2,6 @@
 
 Dialog classes have been split into their own modules:
 
-    compare_dialog.py         → CompareDialog
     recommendations_dialog.py → RecommendationsDialog
     online_import_wizard.py   → OnlineImportWizard
     batch_rename_dialog.py    → BatchRenameDialog
@@ -11,14 +10,12 @@ Dialog classes have been split into their own modules:
 All existing ``from .dialogs import …`` statements continue to work.
 """
 
-from .compare_dialog import CompareDialog
 from .recommendations_dialog import RecommendationsDialog
 from .online_import_wizard import OnlineImportWizard
 from .batch_rename_dialog import BatchRenameDialog
 from .prusa_bundle_wizard import PrusaBundleWizard
 
 __all__ = [
-    "CompareDialog",
     "RecommendationsDialog",
     "OnlineImportWizard",
     "BatchRenameDialog",

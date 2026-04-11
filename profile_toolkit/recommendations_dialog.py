@@ -332,16 +332,23 @@ class RecommendationsDialog:
                 if not original:
                     new_val = typical
                 else:
+                    elem_type = type(original[0])
                     try:
-                        new_val = [
-                            type(original[0])(
-                                float(typical)
-                                if isinstance(original[0], (int, float))
-                                else typical
-                            )
-                        ] * len(original)
+                        if elem_type in (int, float):
+                            coerced = elem_type(float(typical))
+                        elif elem_type is str:
+                            coerced = str(typical)
+                        else:
+                            coerced = typical
+                        new_val = [coerced] * len(original)
                     except (ValueError, TypeError):
-                        new_val = [typical] * len(original)
+                        logger.debug(
+                            "Cannot coerce typical %r to %s for key %s",
+                            typical,
+                            elem_type,
+                            key,
+                        )
+                        continue
             elif isinstance(original, int):
                 try:
                     new_val = int(float(typical))
@@ -370,8 +377,7 @@ class RecommendationsDialog:
         if applied:
             messagebox.showinfo(
                 "Applied",
-                f"Applied {applied} recommended typical value{'s' if applied != 1 else ''}.\n"
-                f"View the profile to see changes.",
+                f"Applied {applied} recommended typical value{'s' if applied != 1 else ''}.",
                 parent=self.dlg,
             )
             # Refresh the detail panel

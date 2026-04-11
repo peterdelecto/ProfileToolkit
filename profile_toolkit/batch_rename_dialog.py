@@ -338,7 +338,7 @@ class BatchRenameDialog(tk.Toplevel):
         )
         self._preview_text.tag_configure("arrow", foreground=theme.fg3)
         self._preview_text.tag_configure("changed", foreground=theme.accent)
-        self._preview_text.tag_configure("collision", foreground="#e74c3c")
+        self._preview_text.tag_configure("collision", foreground=theme.error)
         self._has_collisions = False
         preview_sb = ttk.Scrollbar(
             preview_frame, orient="vertical", command=self._preview_text.yview
@@ -473,8 +473,11 @@ class BatchRenameDialog(tk.Toplevel):
                     self._preview_text.insert("end", "  \u26a0 duplicate", "collision")
             else:
                 self._preview_text.insert("end", f"{p.name}  (unchanged)")
+        # Count hidden collisions beyond the preview limit
+        hidden_collisions = sum(1 for nm in new_names[30:] if nm in duplicates)
         if len(self.profiles) > 30:
-            self._preview_text.insert(
-                "end", f"\n... and {len(self.profiles) - 30} more"
-            )
+            suffix = f"\n... and {len(self.profiles) - 30} more"
+            if hidden_collisions:
+                suffix += f" ({hidden_collisions} with duplicate names)"
+            self._preview_text.insert("end", suffix)
         self._preview_text.configure(state="disabled")

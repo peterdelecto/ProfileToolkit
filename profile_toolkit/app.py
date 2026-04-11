@@ -28,6 +28,7 @@ from .constants import (
     UI_FONT,
     COMPARE_DEBUG_LOG,
     MAX_COLLISION_ATTEMPTS,
+    _ENTRY_CHARS,
 )
 from .theme import Theme
 from .models import (
@@ -337,7 +338,7 @@ class App(tk.Tk):
                 text=f"Detected: {', '.join(self.detected_slicers.keys())}",
                 bg=theme.bg,
                 fg=theme.fg,
-                font=(UI_FONT, 13),
+                font=(UI_FONT, 12),
                 padx=12,
             ).pack(side="right")
 
@@ -702,7 +703,8 @@ class App(tk.Tk):
                         ),
                     )
 
-        threading.Timer(120, _bg_timeout).start()
+        self._bg_timer = threading.Timer(120, _bg_timeout)
+        self._bg_timer.start()
 
     def _resolve_preset_paths(
         self, panel: ProfileListPanel, slicer_names: str
@@ -803,6 +805,9 @@ class App(tk.Tk):
         updates: batched panel additions and status messages.
         """
         self._preset_loading = False
+        if hasattr(self, "_bg_timer") and self._bg_timer:
+            self._bg_timer.cancel()
+            self._bg_timer = None
         panel._hide_overlay()
 
         # Restore persisted state on the main thread (safe to mutate profiles here)
@@ -1647,7 +1652,7 @@ class App(tk.Tk):
             insertbackground=theme.fg,
             highlightbackground=theme.accent,
             highlightthickness=1,
-            width=40,
+            width=_ENTRY_CHARS,
         )
         entry.pack(padx=16, pady=(0, 8))
         entry.select_range(0, "end")
@@ -1736,13 +1741,29 @@ class App(tk.Tk):
         )
 
     def _update_status(self, msg: str = "") -> None:
-        pass  # status bar simplified — slicer detection only
+        """Update status bar text (no-op if status label not present)."""
+        if hasattr(self, "_status_label") and msg:
+            try:
+                self._status_label.configure(text=msg)
+            except tk.TclError:
+                pass
 
     def _update_counts(self) -> None:
-        pass  # count display removed
+        """Update profile count display (no-op if count label not present)."""
+        if hasattr(self, "_count_label"):
+            try:
+                count = len(
+                    getattr(self, "list_panel", None) and self.list_panel.profiles or []
+                )
+                self._count_label.configure(text=f"{count} profiles")
+            except tk.TclError:
+                pass
 
     def _show_temp_status(self, msg: str, duration: int = 4000) -> None:
-        pass  # status bar simplified
+        """Show a temporary status message that auto-clears."""
+        self._update_status(msg)
+        if msg:
+            self.after(duration, lambda: self._update_status(""))
 
     def _on_show_folder(self) -> None:
         """Open the source folder of the currently selected profile."""

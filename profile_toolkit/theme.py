@@ -41,13 +41,15 @@ class Theme:
         self.warning = "#FFCD05"  # Warning (yellow, high visibility)
         self.error = "#FF7070"  # Error / printer-specific (warm red, 4.8:1 on bg)
 
-        # Icon-safe active backgrounds (purple-tinted)
-        self.icon_active_bg = "#2D1F3D"  # Subtle active state (dark purple tint)
-        self.icon_active_bg_strong = "#362B50"  # Strong active/selected (dark purple)
-        self.icon_hover_bg = "#2F2440"  # Icon hover state
+        # Interactive surfaces (desaturated #BA68C8 mixed toward bg)
+        self.icon_hover_bg = "#62436A"  # Hover (1.65:1 vs bg, 7.2:1 fg)
+        self.icon_active_bg = "#81508B"  # Active (2.26:1 vs bg, 5.3:1 fg)
+        self.icon_active_bg_strong = (
+            "#8B4F96"  # Strong/selected (2.5:1 vs bg, 4.8:1 fg)
+        )
 
         # Derived / UI elements
-        self.sel = "#362B50"  # Selected row bg (matches icon_active_bg_strong)
+        self.sel = "#8B4F96"  # Selected row bg (WCAG AA 4.8:1 vs fg #EFEFF0)
         self.btn_bg = "#3E3E45"  # Default button (same as bg4)
         self.btn_fg = "#EFEFF0"  # Default button text
         self.section_bg = "#303036"  # Section header bg
@@ -56,6 +58,12 @@ class Theme:
         self.placeholder_fg = "#A0A0A6"  # Placeholder / hint text (4.5:1 AA on bg)
         self.convert_all_bg = "#34343A"  # "Convert All" button
         self.warning_bg = "#3A2200"  # Warning banner background (dark amber)
+
+        # Slicer badge colors (canonical source — use these instead of hardcoding)
+        self.badge_prusa = "#FF7B15"  # PrusaSlicer orange
+        self.badge_bambu = "#028A0F"  # BambuStudio green
+        self.badge_orca = "#2196F3"  # OrcaSlicer blue
+        self.badge_fg = "#FFFFFF"  # Badge text (white on colored bg)
 
         # ── Win95 Bevels (adapted to blue-gray) ──
         self.bevel_light = "#EFEFF0"  # Raised edge highlight

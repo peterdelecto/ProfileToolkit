@@ -80,10 +80,37 @@ class OnlineImportWizard(tk.Toplevel):
         self._show_step(0)
 
         # Filter change traces (added once here, guarded in _apply_filters)
-        self._filter_material.trace_add("write", lambda *a: self._apply_filters())
-        self._filter_brand.trace_add("write", lambda *a: self._apply_filters())
-        self._filter_machine.trace_add("write", lambda *a: self._apply_filters())
-        self._filter_nozzle.trace_add("write", lambda *a: self._apply_filters())
+        self._trace_ids = []
+        self._trace_ids.append(
+            (
+                self._filter_material,
+                self._filter_material.trace_add(
+                    "write", lambda *a: self._apply_filters()
+                ),
+            )
+        )
+        self._trace_ids.append(
+            (
+                self._filter_brand,
+                self._filter_brand.trace_add("write", lambda *a: self._apply_filters()),
+            )
+        )
+        self._trace_ids.append(
+            (
+                self._filter_machine,
+                self._filter_machine.trace_add(
+                    "write", lambda *a: self._apply_filters()
+                ),
+            )
+        )
+        self._trace_ids.append(
+            (
+                self._filter_nozzle,
+                self._filter_nozzle.trace_add(
+                    "write", lambda *a: self._apply_filters()
+                ),
+            )
+        )
 
         # Keyboard shortcuts
         self.bind("<Return>", lambda e: self._on_next())
@@ -638,7 +665,19 @@ class OnlineImportWizard(tk.Toplevel):
                 else:
                     self._show_pane_status(m)
 
-            self.after(0, _update)
+            try:
+                if self.winfo_exists():
+                    self.after(0, _update)
+            except tk.TclError:
+                pass
+
+        def _safe_after(fn):
+            """Schedule fn on main thread only if widget still exists."""
+            try:
+                if self.winfo_exists():
+                    self.after(0, fn)
+            except tk.TclError:
+                pass
 
         def _fetch() -> None:
             try:
@@ -649,7 +688,7 @@ class OnlineImportWizard(tk.Toplevel):
                 if self._fetch_done.is_set() or self._cancelled:
                     return
                 self._fetch_done.set()
-                self.after(0, lambda: self._on_catalog_loaded(catalog))
+                _safe_after(lambda: self._on_catalog_loaded(catalog))
             except urllib.error.HTTPError as ex:
                 if self._fetch_done.is_set() or self._cancelled:
                     return
@@ -660,13 +699,13 @@ class OnlineImportWizard(tk.Toplevel):
                     msg = "Source not found (404) — URL may have changed"
                 else:
                     msg = f"HTTP error {ex.code}: {ex.reason}"
-                self.after(0, lambda m=msg: self._on_catalog_error(m))
+                _safe_after(lambda m=msg: self._on_catalog_error(m))
             except urllib.error.URLError as ex:
                 if self._fetch_done.is_set() or self._cancelled:
                     return
                 self._fetch_done.set()
                 msg = f"Network error: {ex.reason}"
-                self.after(0, lambda m=msg: self._on_catalog_error(m))
+                _safe_after(lambda m=msg: self._on_catalog_error(m))
             except Exception as ex:
                 if self._fetch_done.is_set() or self._cancelled:
                     return
@@ -676,7 +715,7 @@ class OnlineImportWizard(tk.Toplevel):
                     ex,
                     "Check your internet connection.",
                 )
-                self.after(0, lambda m=msg: self._on_catalog_error(m))
+                _safe_after(lambda m=msg: self._on_catalog_error(m))
 
         threading.Thread(target=_fetch, daemon=True).start()
 
@@ -1421,6 +1460,13 @@ class OnlineImportWizard(tk.Toplevel):
 
     def _on_cancel(self) -> None:
         self._cancelled = True
+        # Remove filter traces to prevent leaks on reopen
+        for var, tid in self._trace_ids:
+            try:
+                var.trace_remove("write", tid)
+            except (tk.TclError, ValueError):
+                pass
+        self._trace_ids.clear()
         save_online_prefs(self._prefs)
         self.destroy()
 

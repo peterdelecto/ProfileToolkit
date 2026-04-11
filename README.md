@@ -64,7 +64,6 @@ profile_toolkit/
   detail_panel.py              Profile editing panel
   list_panel.py                Profile list with filtering/sorting
   compare_panel.py             Side-by-side comparison
-  compare_dialog.py            Quick compare dialog
   convert_panel.py             Cross-slicer conversion
   batch_rename_dialog.py       Batch rename with patterns
   recommendations_dialog.py    Parameter recommendations
