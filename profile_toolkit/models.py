@@ -94,6 +94,15 @@ class PresetIndex:
         self._by_name = {}  # name → dict of raw JSON data
         self.known_printers = set()  # all printer names seen in compatible_printers
         self._collisions = 0
+        self._collision_names: list[str] = (
+            []
+        )  # first N collision names for user display
+        self._resolve_cache: dict[str, tuple] = (
+            {}
+        )  # name → (resolved_data, inherited_keys, chain)
+        self.unresolved_profiles: list[str] = (
+            []
+        )  # names that couldn't resolve inheritance
 
     @property
     def collisions(self) -> int:
@@ -101,20 +110,26 @@ class PresetIndex:
         return self._collisions
 
     def build(self, slicer_path: str, slicer_name: str = "") -> None:
-        """Scan a slicer directory and index all presets by name."""
+        """Scan a slicer directory and index all presets by name.
+
+        System presets are indexed FIRST so that user presets (indexed second)
+        win on name collisions via last-write-wins policy.
+        """
         before = len(self._by_name)
         self._collisions = 0
+        self._collision_names.clear()
+        self._resolve_cache.clear()
 
-        # Index user presets
-        user_dir = os.path.join(slicer_path, "user")
-        if os.path.isdir(user_dir):
-            self._scan_dir(user_dir)
-
-        # Index system presets
+        # Index system presets FIRST (lower priority — user overrides win)
         for subdir in self.SYSTEM_SUBDIRS.get(slicer_name, ["system", "vendor"]):
             sys_dir = os.path.join(slicer_path, subdir)
             if os.path.isdir(sys_dir):
                 self._scan_dir(sys_dir)
+
+        # Index user presets SECOND (higher priority — overwrites system)
+        user_dir = os.path.join(slicer_path, "user")
+        if os.path.isdir(user_dir):
+            self._scan_dir(user_dir)
 
         added = len(self._by_name) - before
         label = slicer_name or slicer_path
@@ -126,8 +141,8 @@ class PresetIndex:
         )
 
     def _scan_dir(self, directory: str) -> None:
-        """Recursively scan for .json preset files."""
-        for root, dirs, files in os.walk(directory):
+        """Recursively scan for .json preset files (no symlink following)."""
+        for root, dirs, files in os.walk(directory, followlinks=False):
             for fname in files:
                 if not fname.endswith(".json"):
                     continue
@@ -139,6 +154,13 @@ class PresetIndex:
                     if isinstance(data, dict) and "name" in data:
                         if data["name"] in self._by_name:
                             self._collisions += 1
+                            if len(self._collision_names) < 20:
+                                self._collision_names.append(data["name"])
+                            logger.debug(
+                                "PresetIndex: collision — '%s' overwritten by %s",
+                                data["name"],
+                                fp,
+                            )
                         self._by_name[data["name"]] = data
                         self._collect_printers(data)
                     elif isinstance(data, list):
@@ -146,6 +168,11 @@ class PresetIndex:
                             if isinstance(item, dict) and "name" in item:
                                 if item["name"] in self._by_name:
                                     self._collisions += 1
+                                    logger.debug(
+                                        "PresetIndex: collision — '%s' overwritten by %s",
+                                        item["name"],
+                                        fp,
+                                    )
                                 self._by_name[item["name"]] = item
                                 self._collect_printers(item)
                 except (json.JSONDecodeError, UnicodeDecodeError) as e:
@@ -170,7 +197,11 @@ class PresetIndex:
             try:
                 cp = json.loads(cp)
             except (json.JSONDecodeError, ValueError):
-                cp = [cp] if cp else []
+                # Handle semicolon-separated (PrusaSlicer format) or single string
+                if ";" in cp:
+                    cp = [p.strip() for p in cp.split(";") if p.strip()]
+                else:
+                    cp = [cp] if cp else []
         if isinstance(cp, list):
             for name in cp:
                 if isinstance(name, str) and name.strip():
@@ -179,16 +210,34 @@ class PresetIndex:
     def add_profiles(self, profiles: list) -> None:
         """Add loaded Profile objects to the index (for cross-referencing)."""
         for profile in profiles:
-            if profile.name and profile.name not in self._by_name:
+            if profile.name:
                 self._by_name[profile.name] = profile.data
             self._collect_printers(profile.data)
+
+    def _fuzzy_lookup(self, name: str) -> Optional[dict]:
+        """Look up a preset by name, falling back to @suffix-stripped match."""
+        data = self._by_name.get(name)
+        if data is None:
+            base = re.sub(r"\s*@.*$", "", name)
+            data = self._by_name.get(base)
+        return data
 
     def resolve(self, profile: Profile, max_depth: int = MAX_INHERITANCE_DEPTH) -> None:
         """
         Resolve a profile's inheritance chain.
         Sets profile.resolved_data (full merged dict) and
         profile.inherited_keys (set of keys that came from parents).
+        Uses a cache to avoid re-walking the same chain.
         """
+        # Check cache first
+        cache_key = profile.data.get("name", "")
+        if cache_key and cache_key in self._resolve_cache:
+            rd, ik, ch = self._resolve_cache[cache_key]
+            profile.resolved_data = dict(rd) if rd else None
+            profile.inherited_keys = set(ik)
+            profile.inheritance_chain = list(ch)
+            return
+
         merged = {}
         inherited_keys = set()
         chain = []
@@ -196,7 +245,7 @@ class PresetIndex:
         # Walk up the inheritance chain
         current_name = profile.inherits
         depth = 0
-        visited = {profile.data.get("name", "")}  # Detect circular references
+        visited = {cache_key}  # Detect circular references
         while current_name and depth < max_depth:
             if current_name in visited:
                 logger.warning(
@@ -206,11 +255,7 @@ class PresetIndex:
                 )
                 break
             visited.add(current_name)
-            parent_data = self._by_name.get(current_name)
-            if parent_data is None:
-                # Try fuzzy match: strip @suffix
-                base = re.sub(r"\s*@.*$", "", current_name)
-                parent_data = self._by_name.get(base)
+            parent_data = self._fuzzy_lookup(current_name)
             if parent_data is None:
                 break
             chain.append(current_name)
@@ -224,20 +269,23 @@ class PresetIndex:
                 profile.data.get("name", ""),
             )
 
-        # If no parents were found, inheritance is unresolved — leave
-        # resolved_data as None so the UI can show an appropriate warning.
+        # If no parents were found, inheritance is unresolved
         if not chain:
             profile.resolved_data = None
             profile.inherited_keys = set()
             profile.inheritance_chain = []
+            # Track unresolved for user-facing warnings
+            if profile.inherits:
+                pname = profile.data.get("name", profile.inherits)
+                if pname not in self.unresolved_profiles:
+                    self.unresolved_profiles.append(pname)
+            if cache_key:
+                self._resolve_cache[cache_key] = (None, set(), [])
             return
 
         # Merge from deepest ancestor → nearest parent → profile itself
         for ancestor_name in reversed(chain):
-            ancestor = self._by_name.get(ancestor_name)
-            if ancestor is None:
-                base = re.sub(r"\s*@.*$", "", ancestor_name)
-                ancestor = self._by_name.get(base, {})
+            ancestor = self._fuzzy_lookup(ancestor_name) or {}
             for k, v in ancestor.items():
                 if k not in _IDENTITY_KEYS:
                     merged[k] = v
@@ -249,6 +297,13 @@ class PresetIndex:
                 inherited_keys.discard(k)  # It's an override, not inherited
 
         profile.resolved_data = merged
+        # Cache the result
+        if cache_key:
+            self._resolve_cache[cache_key] = (
+                dict(merged),
+                set(inherited_keys),
+                list(chain),
+            )
         profile.inherited_keys = inherited_keys
         profile.inheritance_chain = chain
 
@@ -346,6 +401,21 @@ class Profile:
                     self.modified = v
                 else:
                     self.data[k] = deepcopy(v)
+        # Restore inheritance-related attributes if saved
+        if "_resolved_data" in snapshot:
+            self.resolved_data = (
+                deepcopy(snapshot["_resolved_data"])
+                if snapshot["_resolved_data"]
+                else None
+            )
+        if "_inherited_keys" in snapshot:
+            self.inherited_keys = (
+                snapshot["_inherited_keys"] if snapshot["_inherited_keys"] else set()
+            )
+        if "_inheritance_chain" in snapshot:
+            self.inheritance_chain = (
+                snapshot["_inheritance_chain"] if snapshot["_inheritance_chain"] else []
+            )
         self.changelog = self.changelog[:changelog_index]
         return True
 
@@ -580,11 +650,11 @@ class Profile:
             return self.nozzle_group
         elif group_by == "status":
             if self.modified:
-                return "Made Universal"
+                return "Universal"
             elif self.is_locked:
-                return "Printer-Specific"
+                return "Printer-Locked"
             else:
-                return "Custom"
+                return "Modified"
         return ""  # "none" — no grouping
 
     def _flatten_into_data(self) -> None:
@@ -609,9 +679,26 @@ class Profile:
         when on flattened user profiles — the profile appears in the Custom list
         for every printer. This matches known-working user profiles.
         """
+        # Save full pre-flatten state including inheritance
+        snapshot = {
+            "_full_data": deepcopy(self.data),
+            "_modified": self.modified,
+            "_resolved_data": (
+                deepcopy(self.resolved_data) if self.resolved_data else None
+            ),
+            "_inherited_keys": (
+                set(self.inherited_keys)
+                if hasattr(self, "inherited_keys") and self.inherited_keys
+                else None
+            ),
+            "_inheritance_chain": (
+                list(self.inheritance_chain)
+                if hasattr(self, "inheritance_chain") and self.inheritance_chain
+                else None
+            ),
+            "_inherits": self.data.get("inherits"),
+        }
         self._flatten_into_data()
-        # Snapshot full data so restore can undo flattening + modifications
-        snapshot = {"_full_data": deepcopy(self.data), "_modified": self.modified}
 
         old_printers = self.data.get("compatible_printers", [])
         old_psid = self.data.get("printer_settings_id", "")
@@ -638,9 +725,29 @@ class Profile:
         printers = [str(p).strip() for p in printers if p and str(p).strip()]
         if not printers:
             return
+        for p in printers:
+            if any(c in p for c in "\t\n\r\x00"):
+                logger.warning("Retarget: suspicious printer name: %r", p)
+        # Save full pre-flatten state including inheritance
+        snapshot = {
+            "_full_data": deepcopy(self.data),
+            "_modified": self.modified,
+            "_resolved_data": (
+                deepcopy(self.resolved_data) if self.resolved_data else None
+            ),
+            "_inherited_keys": (
+                set(self.inherited_keys)
+                if hasattr(self, "inherited_keys") and self.inherited_keys
+                else None
+            ),
+            "_inheritance_chain": (
+                list(self.inheritance_chain)
+                if hasattr(self, "inheritance_chain") and self.inheritance_chain
+                else None
+            ),
+            "_inherits": self.data.get("inherits"),
+        }
         self._flatten_into_data()
-        # Snapshot full data so restore can undo flattening + modifications
-        snapshot = {"_full_data": deepcopy(self.data), "_modified": self.modified}
 
         old_printers = self.data.get("compatible_printers", [])
         self.data["compatible_printers"] = printers
@@ -715,18 +822,31 @@ class Profile:
         ],
     }
 
-    def convert_to(self, target: str) -> tuple["Profile", list[str], list[str]]:
+    # Gcode variable patterns that are slicer-specific
+    _GCODE_KEYS_FOR_CONVERT = {
+        "filament_start_gcode",
+        "filament_end_gcode",
+        "start_filament_gcode",
+        "end_filament_gcode",
+    }
+
+    def convert_to(
+        self, target: str
+    ) -> tuple["Profile", list[str], list[str], list[str]]:
         """Convert this profile to a different slicer format.
 
         Args:
             target: "PrusaSlicer", "OrcaSlicer", or "BambuStudio"
 
         Returns:
-            (new_profile, dropped_keys, missing_keys)
+            (new_profile, dropped_keys, missing_keys, warnings)
             - dropped_keys: source-specific params removed (no target equivalent)
             - missing_keys: target-specific params not in source (need filling)
+            - warnings: informational messages about conversion caveats
         """
         from .constants import FILAMENT_LAYOUT, _IDENTITY_KEYS
+
+        warnings: list[str] = []
 
         # Flatten: merge resolved_data + data so we're self-contained
         if self.resolved_data:
@@ -745,6 +865,24 @@ class Profile:
         target_is_prusa = "prusa" in target.lower()
         source_is_bambu_orca = "bambu" in source.lower() or "orca" in source.lower()
         target_is_bambu_orca = "bambu" in target.lower() or "orca" in target.lower()
+
+        # #3: Warn on unknown source origin
+        if not source_is_prusa and not source_is_bambu_orca:
+            warnings.append(
+                f"Unknown source slicer \"{source or '(none)'}\" — "
+                "no key remapping applied. Review results carefully."
+            )
+
+        # #9: Warn on same-family conversion
+        if (
+            source_is_bambu_orca
+            and target_is_bambu_orca
+            and source.lower() == target.lower()
+        ):
+            warnings.append(
+                "Source and target are the same slicer — "
+                "profile will be copied without changes."
+            )
 
         dropped: list[str] = []
         converted = {}
@@ -783,6 +921,7 @@ class Profile:
 
         elif source_is_prusa and target_is_bambu_orca:
             # Prusa → Bambu/Orca
+            bed_expanded = False
             for k, v in flat.items():
                 if k in self._PRUSA_TO_BAMBU:
                     converted[self._PRUSA_TO_BAMBU[k]] = v
@@ -792,10 +931,17 @@ class Profile:
                         # Expand to all plate types
                         for plate in self._PRUSA_BED_TO_BAMBU[k]:
                             converted[plate] = v
+                        bed_expanded = True
                     else:
                         dropped.append(k)
                 else:
                     converted[k] = v
+            # #16: Note about identical plate temps
+            if bed_expanded:
+                warnings.append(
+                    "All plate temperatures set to the same value — "
+                    "review per-plate settings for your build plate type."
+                )
 
         elif source_is_bambu_orca and target_is_bambu_orca:
             # Bambu ↔ Orca: same keys, just change origin
@@ -822,6 +968,27 @@ class Profile:
         expected = target_specific | mapped_target_keys
         missing = sorted(k for k in expected if k not in converted)
 
+        # #5: Warn if gcode contains slicer-specific variables
+        for gk in self._GCODE_KEYS_FOR_CONVERT:
+            val = converted.get(gk, "")
+            if isinstance(val, str) and ("{" in val or "[" in val):
+                warnings.append(
+                    "G-code fields may contain slicer-specific variables "
+                    "that need manual review."
+                )
+                break
+
+        # #12: Strip existing slicer suffix before appending new one
+        import re as _re
+
+        clean_name = _re.sub(
+            r"\s*\((?:BS|PS|OS|Bambu|Prusa|Orca)\)\s*$",
+            "",
+            flat.get("name", ""),
+        )
+        if clean_name:
+            converted["name"] = clean_name
+
         # Build new profile
         new_profile = Profile(
             data=converted,
@@ -838,7 +1005,7 @@ class Profile:
             f"{len(dropped)} dropped, {len(missing)} missing.",
         )
 
-        return new_profile, sorted(dropped), missing
+        return new_profile, sorted(dropped), missing, warnings
 
     def to_prusa_ini(self) -> str:
         """Export profile as a PrusaSlicer-compatible INI string."""
@@ -947,9 +1114,12 @@ class ProfileEngine:
         attempting zlib decompression before falling back to plain-text
         encoding attempts.
         """
+        _MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
         raw = None
         with open(path, "rb") as f:
-            raw = f.read()
+            raw = f.read(_MAX_FILE_SIZE + 1)
+        if len(raw) > _MAX_FILE_SIZE:
+            raise ValueError(f"File too large: {len(raw)} bytes (max {_MAX_FILE_SIZE})")
 
         text = _decode_json_bytes(raw)
 
@@ -1008,6 +1178,8 @@ class ProfileEngine:
             raise ValueError(f"{os.path.basename(path)} is not a valid archive")
 
         _MAX_ENTRY_SIZE = 50 * 1024 * 1024  # 50 MB
+        _MAX_TOTAL_SIZE = 200 * 1024 * 1024  # 200 MB total across all entries
+        total_extracted = 0
 
         with zipfile.ZipFile(path, "r") as zf:
             for info in zf.infolist():
@@ -1020,6 +1192,13 @@ class ProfileEngine:
                     )
                     continue
 
+                if total_extracted > _MAX_TOTAL_SIZE:
+                    logger.warning(
+                        "Total extracted size exceeds %d bytes, stopping",
+                        _MAX_TOTAL_SIZE,
+                    )
+                    break
+
                 if name.endswith(".json"):
                     try:
                         with zf.open(name) as entry_f:
@@ -1031,6 +1210,7 @@ class ProfileEngine:
                                     len(raw),
                                 )
                                 continue
+                        total_extracted += len(raw)
                         text = _decode_json_bytes(raw)
                         if text is None:
                             errors.append(f"{name}: could not decode")
@@ -1048,6 +1228,7 @@ class ProfileEngine:
                         UnicodeDecodeError,
                         KeyError,
                         ValueError,
+                        RuntimeError,
                     ) as e:
                         errors.append(f"{name}: {e}")
 
@@ -1064,6 +1245,7 @@ class ProfileEngine:
                                     len(raw),
                                 )
                                 continue
+                        total_extracted += len(raw)
                         text = _decode_json_bytes(raw)
                         if text is None:
                             errors.append(f"{name}: could not decode")
@@ -1074,6 +1256,7 @@ class ProfileEngine:
                         KeyError,
                         ValueError,
                         ET.ParseError,
+                        RuntimeError,
                     ) as e:
                         errors.append(f"{name}: {e}")
 
@@ -1088,6 +1271,7 @@ class ProfileEngine:
                                     len(raw),
                                 )
                                 continue
+                        total_extracted += len(raw)
                         text = _decode_json_bytes(raw)
                         if text is None:
                             errors.append(f"{name}: could not decode")
@@ -1333,14 +1517,25 @@ class ProfileEngine:
     @staticmethod
     def load_ini(path: str, type_hint: str = None) -> list:
         """Load a PrusaSlicer-style .ini profile (flat key=value, one profile per file)."""
-        raw_bytes = open(path, "rb").read()
+        _MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
+        raw_bytes = open(path, "rb").read(_MAX_FILE_SIZE + 1)
+        if len(raw_bytes) > _MAX_FILE_SIZE:
+            raise ValueError(
+                f"File too large: {len(raw_bytes)} bytes (max {_MAX_FILE_SIZE})"
+            )
         content = None
+        used_enc = None
         for enc in ("utf-8", "utf-8-sig", "latin-1"):
             try:
                 content = raw_bytes.decode(enc)
+                used_enc = enc
                 break
             except UnicodeDecodeError:
                 continue
+        if used_enc == "latin-1":
+            logger.warning(
+                "File decoded as latin-1 (possible encoding mismatch): %s", path
+            )
         if content is None:
             content = raw_bytes.decode("utf-8", errors="replace")
         data = {}
@@ -1490,7 +1685,11 @@ class ProfileEngine:
         Handles multi-parent inheritance (inherits = parent1; parent2)
         with left-to-right merge, child overrides last. Cycle-safe.
         """
-        if _depth > 20 or name in (_seen or set()) or name not in all_filaments:
+        if (
+            _depth > MAX_INHERITANCE_DEPTH
+            or name in (_seen or set())
+            or name not in all_filaments
+        ):
             return {}
         if _seen is None:
             _seen = set()

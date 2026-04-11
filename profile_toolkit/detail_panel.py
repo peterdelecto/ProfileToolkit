@@ -373,12 +373,14 @@ class ProfileDetailPanel(tk.Frame):
 
         # Status text (colored, no bg box)
         if profile.modified:
-            status_text = "Unlocked"
+            status_text = "Universal"
             status_fg = theme.modified
         elif profile.is_locked:
             printers = profile.compatible_printers
             if printers:
-                status_text = "Printer-Specific"
+                status_text = f"Locked to {', '.join(printers[:2])}"
+                if len(printers) > 2:
+                    status_text += f" +{len(printers) - 2}"
                 status_fg = theme.locked
             else:
                 # Bound to a printer profile via printer_settings_id
@@ -386,13 +388,13 @@ class ProfileDetailPanel(tk.Frame):
                 if isinstance(psid, list):
                     psid = psid[0] if psid else ""
                 if psid:
-                    status_text = f"Specific to {psid}"
+                    status_text = f"Locked to {psid}"
                     status_fg = theme.locked
                 else:
-                    status_text = "Custom"
+                    status_text = "Modified"
                     status_fg = theme.fg
         else:
-            status_text = "Custom"
+            status_text = "Modified"
             status_fg = theme.fg
         tk.Label(
             row2,

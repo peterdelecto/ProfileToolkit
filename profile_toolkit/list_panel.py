@@ -401,14 +401,14 @@ class ProfileListPanel(tk.Frame):
     @staticmethod
     def _profile_status(p: Profile) -> tuple:
         if p.modified:
-            return ("Unlocked", "status_converted")
+            return ("Universal", "status_converted")
         elif p.is_locked:
             if p.compatible_printers:
-                return ("Printer-Specific", "status_locked")
+                return ("Printer-Locked", "status_locked")
             else:
-                return ("Printer-Specific", "status_locked")
+                return ("Printer-Locked", "status_locked")
         else:
-            return ("Custom", "status_universal")
+            return ("Modified", "status_universal")
 
     # Slicer badge letters for the tree column
     _SLICER_LETTERS = {
