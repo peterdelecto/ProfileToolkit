@@ -16,7 +16,7 @@ from .constants import (
 )
 from .theme import Theme
 from .models import Profile
-from .widgets import make_btn as _make_btn
+from .widgets import make_btn as _make_btn, Tooltip as _Tooltip
 from .detail_panel import ProfileDetailPanel
 
 logger = logging.getLogger(__name__)
@@ -241,7 +241,9 @@ class ProfileListPanel(tk.Frame):
         except ValueError:
             idx = 0  # Fall back to "All columns"
         self._filter_by = self._filter_values[idx]
-        self._refresh_list()
+        if self._filter_after_id:
+            self.after_cancel(self._filter_after_id)
+        self._filter_after_id = self.after(150, self._refresh_list)
 
     # ── SECTION: Treeview Rendering and Sorting ──
 
@@ -399,7 +401,7 @@ class ProfileListPanel(tk.Frame):
     @staticmethod
     def _profile_status(p: Profile) -> tuple:
         if p.modified:
-            return ("Made Universal", "status_converted")
+            return ("Unlocked", "status_converted")
         elif p.is_locked:
             if p.compatible_printers:
                 return ("Printer-Specific", "status_locked")
@@ -577,10 +579,12 @@ class ProfileListPanel(tk.Frame):
                     self.convert_detail.show_profile(self.profiles[idx])
                 else:
                     self.detail.show_profile(self.profiles[idx])
+            else:
+                self.detail._show_placeholder()
         elif len(sel) > 1:
             if self._mode == "detail":
                 self.detail._show_placeholder(
-                    f"{len(sel)} profiles selected.\n\nUse 'Unlock Selected' to modify\nor select exactly 2 for 'Compare'."
+                    f"{len(sel)} profiles selected.\nSelect one to view, or two to compare."
                 )
             else:
                 self.convert_detail.clear()
@@ -712,6 +716,8 @@ class ProfileListPanel(tk.Frame):
         tip_text = profile.name
 
         def _show() -> None:
+            if idx >= len(self.profiles):
+                return
             # Don't show tooltips when app isn't focused -- avoids
             # stealing focus from other applications on macOS.
             try:
@@ -761,7 +767,7 @@ class ProfileListPanel(tk.Frame):
         action_row1.pack(fill="x", padx=6, pady=(0, 2))
         _make_btn(
             action_row1,
-            "Clear List",
+            "Clear All...",
             lambda: self.app._on_clear_list(),
             bg=theme.bg4,
             fg=theme.warning,
@@ -771,7 +777,7 @@ class ProfileListPanel(tk.Frame):
         ).pack(side="left", padx=(0, 4))
         _make_btn(
             action_row1,
-            "Remove Selected",
+            "Remove from List",
             lambda: self.app._on_remove(),
             bg=theme.bg4,
             fg=theme.warning,
@@ -781,7 +787,7 @@ class ProfileListPanel(tk.Frame):
         ).pack(side="left", padx=(0, 4))
         _make_btn(
             action_row1,
-            "Show Folder",
+            "Show Source Folder",
             lambda: self.app._on_show_folder(),
             bg=theme.bg4,
             fg=theme.btn_fg,
@@ -806,16 +812,22 @@ class ProfileListPanel(tk.Frame):
         # Row 2: primary unlock action
         action_row2 = tk.Frame(parent, bg=theme.bg2)
         action_row2.pack(fill="x", padx=6, pady=(0, 4))
-        _make_btn(
+        unlock_btn = _make_btn(
             action_row2,
-            "Unlock Selected",
+            "Make Universal",
             lambda: self.app._on_unlock(),
             bg=theme.accent2,
             fg=theme.accent_fg,
             font=(UI_FONT, 12, "bold"),
             padx=8,
             pady=4,
-        ).pack(side="right", padx=(0, 4))
+        )
+        unlock_btn.pack(side="right", padx=(0, 4))
+        _Tooltip(
+            unlock_btn,
+            "Remove printer restriction so this profile works on any printer",
+            theme=theme,
+        )
         _make_btn(
             action_row2,
             "Delete from Disk",
@@ -928,7 +940,7 @@ class ProfileListPanel(tk.Frame):
                     sel_profiles[0], sel_profiles[1]
                 ),
             )
-        menu.add_command(label="Show Folder", command=self.app._on_show_folder)
+        menu.add_command(label="Show Source Folder", command=self.app._on_show_folder)
         if len(sel_profiles) == 1:
             p = sel_profiles[0]
             hist_n = len(p.changelog) if p.changelog else 0
@@ -1023,6 +1035,7 @@ class ProfileListPanel(tk.Frame):
                             f'A profile named "{new_name}" already exists.',
                             parent=self.tree,
                         )
+                        return
                     old_name = profile.name
                     snapshot = {"name": old_name, "_modified": profile.modified}
                     profile.data["name"] = new_name
@@ -1041,8 +1054,14 @@ class ProfileListPanel(tk.Frame):
                 self._rename_finishing = False
 
         def _cancel(event: Optional[tk.Event] = None) -> None:
+            self._rename_finishing = True
             self._rename_active = False
-            entry.destroy()
+            try:
+                entry.destroy()
+            except tk.TclError:
+                pass
+            finally:
+                self._rename_finishing = False
 
         entry.bind("<Return>", _finish)
         entry.bind("<FocusOut>", _finish)
@@ -1091,6 +1110,12 @@ class ProfileListPanel(tk.Frame):
                 self.profiles.pop(i)
         self._refresh_list()
         self.detail._show_placeholder()
+        if (
+            hasattr(self, "_mode")
+            and self._mode == "convert"
+            and hasattr(self, "convert_detail")
+        ):
+            self.convert_detail.clear()
         # Notify app that selection changed (clears comparison cache)
         if self.app and self.profile_type == "filament":
             if hasattr(self.app, "_on_filament_selection_changed"):
@@ -1125,11 +1150,10 @@ class ProfileListPanel(tk.Frame):
         if count == 1:
             name, fpath = paths[0]
             msg = (
-                f"PERMANENTLY delete this profile from your disk?\n\n"
+                f"Permanently delete this profile?\n\n"
                 f"  {os.path.basename(fpath)}\n\n"
                 f"Location: {os.path.dirname(fpath)}\n\n"
-                f"This will permanently erase the file from your computer.\n"
-                f"This action cannot be undone \u2014 the file cannot be recovered."
+                f"This cannot be undone."
             )
         else:
             file_list = "\n".join(
@@ -1138,10 +1162,9 @@ class ProfileListPanel(tk.Frame):
             if count > 8:
                 file_list += f"\n  ... and {count - 8} more"
             msg = (
-                f"PERMANENTLY delete {count} profiles from your disk?\n\n"
+                f"Permanently delete {count} profiles?\n\n"
                 f"{file_list}\n\n"
-                f"This will permanently erase these files from your computer.\n"
-                f"This action cannot be undone \u2014 the files cannot be recovered."
+                f"This cannot be undone."
             )
 
         confirmed = messagebox.askyesno(
@@ -1155,6 +1178,13 @@ class ProfileListPanel(tk.Frame):
         successfully_deleted = []
         for name, fpath in paths:
             try:
+                fpath = os.path.realpath(fpath)
+                # Reject paths outside user's home or containing suspicious traversal
+                if ".." in os.path.relpath(fpath, os.path.expanduser("~")):
+                    errors.append(
+                        f"{os.path.basename(fpath)}: path outside home directory"
+                    )
+                    continue
                 os.remove(fpath)
                 deleted += 1
                 successfully_deleted.append(fpath)
@@ -1171,6 +1201,12 @@ class ProfileListPanel(tk.Frame):
                 self.profiles.pop(i)
             self._refresh_list()
             self.detail._show_placeholder()
+            if (
+                hasattr(self, "_mode")
+                and self._mode == "convert"
+                and hasattr(self, "convert_detail")
+            ):
+                self.convert_detail.clear()
 
         if errors:
             messagebox.showwarning("Some files could not be deleted", "\n".join(errors))
@@ -1184,6 +1220,12 @@ class ProfileListPanel(tk.Frame):
             self.profiles.clear()
             self._refresh_list()
             self.detail._show_placeholder()
+            if (
+                hasattr(self, "_mode")
+                and self._mode == "convert"
+                and hasattr(self, "convert_detail")
+            ):
+                self.convert_detail.clear()
             # Notify app that selection is now empty (cache must clear)
             if self.app and self.profile_type == "filament":
                 if hasattr(self.app, "_on_filament_selection_changed"):

@@ -184,7 +184,7 @@ class ProfileDetailPanel(tk.Frame):
             ).pack(side="left", padx=(0, 6))
             mf_lbl = tk.Label(
                 actions,
-                text="Extract from 3MF",
+                text="Import from 3MF",
                 bg=theme.bg2,
                 fg=theme.accent,
                 font=(UI_FONT, 13, "bold"),
@@ -199,7 +199,7 @@ class ProfileDetailPanel(tk.Frame):
             ).pack(side="left", padx=(0, 6))
             lp_lbl = tk.Label(
                 actions,
-                text="Load from System Folders",
+                text="Load Installed Profiles",
                 bg=theme.bg2,
                 fg=theme.accent,
                 font=(UI_FONT, 13, "bold"),
@@ -234,8 +234,8 @@ class ProfileDetailPanel(tk.Frame):
             self._pre_edit_modified = None
         # Find which tab the key belongs to
         target_tab = self._current_tab
-        for tab_name, sections in FILAMENT_LAYOUT:
-            for section_name, params in sections:
+        for tab_name, sections in FILAMENT_LAYOUT.items():
+            for section_name, params in sections.items():
                 if any(p[0] == key for p in params):
                     target_tab = tab_name
                     break
@@ -339,7 +339,7 @@ class ProfileDetailPanel(tk.Frame):
         )
         clear_btn = _make_btn(
             name_row,
-            "Clear",
+            "Close Compare",
             self._on_clear_compare,
             bg=theme.bg4,
             fg=theme.fg2,
@@ -372,7 +372,7 @@ class ProfileDetailPanel(tk.Frame):
 
         # Status text (colored, no bg box)
         if profile.modified:
-            status_text = "Made Universal"
+            status_text = "Unlocked"
             status_fg = theme.modified
         elif profile.is_locked:
             printers = profile.compatible_printers
@@ -474,8 +474,8 @@ class ProfileDetailPanel(tk.Frame):
         if has_inherited:
             parts.append(("\u21b0", theme.inherited, "Inherited"))
         if has_recommendations:
-            parts.append(("\u25bc", theme.info, "Below typical"))
-            parts.append(("\u25b2", theme.warning, "Above typical"))
+            parts.append(("\u25bc", theme.info, "Below recommended"))
+            parts.append(("\u25b2", theme.warning, "Above recommended"))
             parts.append(("\u24d8", theme.fg3, "Smart recommendation"))
         for i, (icon, color, desc) in enumerate(parts):
             if i > 0:
@@ -968,7 +968,7 @@ class ProfileDetailPanel(tk.Frame):
         if not has_content and not sections:
             tk.Label(
                 self._content_frame,
-                text="(No settings in this tab)",
+                text="No settings in this tab",
                 bg=theme.param_bg,
                 fg=theme.fg2,
                 font=(UI_FONT, 13),
@@ -1021,7 +1021,7 @@ class ProfileDetailPanel(tk.Frame):
             if tags and slicer_short and slicer_short not in tags:
                 empty_msg = f"Not used in {self.current_profile.origin}"
             else:
-                empty_msg = "(no values configured)"
+                empty_msg = "No values set in this section"
             tk.Label(
                 self._content_frame,
                 text=empty_msg,

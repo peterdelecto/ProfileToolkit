@@ -381,7 +381,7 @@ class InfoPopup:
                     bg=popup_bg,
                     fg=link_fg,
                     font=(UI_FONT, 12, "underline"),
-                    cursor="hand2",
+                    cursor="pointinghand",
                     anchor="w",
                 )
                 link.pack(anchor="w", padx=(8, 0))
@@ -699,6 +699,7 @@ class ExportDialog(tk.Toplevel):
         theme: Theme,
         count: int = 1,
         detected_slicers: Optional[Dict[str, str]] = None,
+        default_format: str = "json",
     ) -> None:
         """Initialize export dialog.
 
@@ -707,12 +708,13 @@ class ExportDialog(tk.Toplevel):
             theme: Theme for dialog styling.
             count: Number of profiles to export.
             detected_slicers: Detected slicer installations.
+            default_format: Pre-selected format ("json" or "ini"), auto-detected from profile origin.
         """
         super().__init__(parent)
         self.theme: Theme = theme
         self.result: Optional[str] = None  # "file" for save-to-file, or None for cancel
         self.flatten: bool = True
-        self.export_format: str = "json"  # "json" or "ini"
+        self.export_format: str = default_format
         self.slicer_target: Optional[Tuple[str, str]] = (
             None  # (name, path) if installing to slicer
         )
@@ -755,7 +757,7 @@ class ExportDialog(tk.Toplevel):
         tk.Label(
             fmt_frame, text="Format:", bg=theme.bg, fg=theme.fg, font=(UI_FONT, 12)
         ).pack(side="left", padx=(0, 8))
-        self._fmt_var = tk.StringVar(value="json")
+        self._fmt_var = tk.StringVar(value=default_format)
         for fmt_val, fmt_label in [("json", "JSON"), ("ini", "INI (PrusaSlicer)")]:
             tk.Radiobutton(
                 fmt_frame,
@@ -878,7 +880,7 @@ class UnlockDialog(tk.Toplevel):
         super().__init__(parent)
         self.theme: Theme = theme
         self.result: Optional[Any] = None
-        self.title("Make Profiles Universal")
+        self.title("Make Universal")
         self.configure(bg=theme.bg)
         self.resizable(False, False)
         self.transient(parent)
@@ -891,7 +893,7 @@ class UnlockDialog(tk.Toplevel):
         theme = self.theme
         tk.Label(
             self,
-            text=f"Unlock {count} profile{'s' if count != 1 else ''}",
+            text=f"Make {count} {'profile' if count == 1 else 'profiles'} universal",
             font=(UI_FONT, 14, "bold"),
             bg=theme.bg,
             fg=theme.fg,
@@ -964,6 +966,29 @@ class UnlockDialog(tk.Toplevel):
 
         self.printer_frame: tk.Frame = tk.Frame(self, bg=theme.bg)
         self.printer_frame.pack(fill="both", expand=True, padx=32, pady=(0, 8))
+
+        # Search filter for printer list
+        self._printer_search_var = tk.StringVar()
+        search_row = tk.Frame(self.printer_frame, bg=theme.bg)
+        search_row.pack(fill="x", pady=(0, 4))
+        tk.Label(
+            search_row,
+            text="Filter:",
+            bg=theme.bg,
+            fg=theme.fg3,
+            font=(UI_FONT, 11),
+        ).pack(side="left")
+        printer_search = tk.Entry(
+            search_row,
+            textvariable=self._printer_search_var,
+            bg=theme.bg3,
+            fg=theme.fg,
+            insertbackground=theme.fg,
+            font=(UI_FONT, 11),
+            width=20,
+        )
+        printer_search.pack(side="left", padx=(4, 0), fill="x", expand=True)
+        self._printer_search_var.trace_add("write", lambda *_: self._filter_printers())
 
         list_frame = tk.Frame(
             self.printer_frame,
@@ -1050,7 +1075,7 @@ class UnlockDialog(tk.Toplevel):
         cancel_btn.pack(side="right", padx=(8, 0))
         unlock_btn = make_btn(
             button_frame,
-            "Unlock",
+            "Make Universal",
             self._unlock,
             bg=theme.accent,
             fg=theme.accent_fg,
@@ -1059,6 +1084,17 @@ class UnlockDialog(tk.Toplevel):
             pady=6,
         )
         unlock_btn.pack(side="right")
+
+    def _filter_printers(self) -> None:
+        """Show/hide printer checkboxes based on search text."""
+        query = self._printer_search_var.get().lower()
+        for w in self.check_frame.winfo_children():
+            if isinstance(w, tk.Checkbutton):
+                text = w.cget("text").lower()
+                if query and query not in text:
+                    w.pack_forget()
+                else:
+                    w.pack(anchor="w", padx=24)
 
     def _mode_changed(self) -> None:
         self._set_state("normal" if self.mode.get() == "retarget" else "disabled")
@@ -1080,7 +1116,18 @@ class UnlockDialog(tk.Toplevel):
             sel = [n for n, v in self.pvars.items() if v.get()]
             c = self.custom.get().strip()
             if c:
-                sel.extend(p.strip() for p in c.split(",") if p.strip())
+                custom_entries = [p.strip() for p in c.split(",") if p.strip()]
+                # Validate custom entries have reasonable format
+                bad = [e for e in custom_entries if len(e) < 2 or len(e) > 100]
+                if bad:
+                    messagebox.showwarning(
+                        "Invalid Printer Name",
+                        f"These entries seem invalid:\n{', '.join(bad)}\n\n"
+                        "Printer names should be 2–100 characters.",
+                        parent=self,
+                    )
+                    return
+                sel.extend(custom_entries)
             if not sel:
                 messagebox.showwarning(
                     "No Printers",

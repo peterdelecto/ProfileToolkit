@@ -46,6 +46,7 @@ from .state import (
 )
 from .panels import ProfileDetailPanel, ProfileListPanel, ComparePanel
 from .dialogs import OnlineImportWizard, PrusaBundleWizard
+from .utils import user_error
 from .widgets import ExportDialog, UnlockDialog, make_btn
 
 logger = logging.getLogger(__name__)
@@ -111,9 +112,7 @@ class App(tk.Tk):
         self._configure_styles()
         self._build_menu()
         self._build_ui()
-        self._update_status(
-            "Ready. Import profiles (JSON, INI), extract from 3MF, or load system presets to get started."
-        )
+        self._update_status("Ready")
 
         # Set minimum size after UI is built and mapped
         self.update_idletasks()
@@ -415,7 +414,7 @@ class App(tk.Tk):
 
         make_btn(
             toolbar,
-            "Extract from 3MF",
+            "Import from 3MF",
             self._on_extract_3mf,
             bg=theme.bg4,
             fg=theme.btn_fg,
@@ -617,7 +616,8 @@ class App(tk.Tk):
             messagebox.showinfo(
                 "No Slicers Found",
                 "No slicer installations were detected.\n\n"
-                "Supported: BambuStudio, OrcaSlicer, Prusa",
+                "Supported: BambuStudio, OrcaSlicer, PrusaSlicer\n\n"
+                "Use File > Import to load profiles manually.",
             )
             return
 
@@ -695,7 +695,7 @@ class App(tk.Tk):
                         lambda: (
                             panel._hide_overlay(),
                             self._update_status(
-                                "Preset loading timed out after 2 minutes."
+                                "Loading timed out. Try again, or import manually via File > Import."
                             ),
                         ),
                     )
@@ -929,7 +929,9 @@ class App(tk.Tk):
         panel = self._active_panel()
         selected = panel.get_selected_profiles()
         if not selected:
-            messagebox.showinfo("No Selection", "Select profiles to unlock.")
+            messagebox.showinfo(
+                "No Selection", "Select one or more profiles in the list first."
+            )
             return
 
         dlg = UnlockDialog(self, self.theme, len(selected))
@@ -951,7 +953,7 @@ class App(tk.Tk):
                 names += f"\n  ... and {len(slicer_profiles) - 10} more"
             if not messagebox.askyesno(
                 "Save to Slicer?",
-                f"Save changes to {len(slicer_profiles)} profile(s) in your slicer directory?\n\n{names}\n\nRestart your slicer to see changes.",
+                f"Save changes to {len(slicer_profiles)} {'profile' if len(slicer_profiles) == 1 else 'profiles'} in your slicer directory?\n\n{names}",
                 parent=self,
             ):
                 slicer_profiles = []
@@ -966,12 +968,15 @@ class App(tk.Tk):
         panel._refresh_list()
         panel._on_select()
         if dlg.result == "universal":
-            status = f"Made {len(selected)} profile(s) universal."
+            n = len(selected)
+            status = f"Made {n} {'profile' if n == 1 else 'profiles'} universal."
         else:
-            status = f"Retargeted {len(selected)} profile(s) to: {', '.join(dlg.result) if isinstance(dlg.result, list) else dlg.result}."
+            n = len(selected)
+            status = f"Retargeted {n} {'profile' if n == 1 else 'profiles'} to: {', '.join(dlg.result) if isinstance(dlg.result, list) else dlg.result}."
         if saved_back:
             status += " Saved to slicer — restart to see changes."
-        status += " Check print speed and acceleration settings for your printer."
+        if dlg.result == "universal":
+            status += " Check print speed and acceleration settings for your printer."
         self._update_status(status)
 
     def _is_slicer_profile(self, profile: Profile) -> bool:
@@ -1014,7 +1019,14 @@ class App(tk.Tk):
             with open(fp, "w", encoding="utf-8") as f:
                 f.write(profile.to_json(flatten=True))
         except OSError as e:
-            messagebox.showerror("Save Failed", f"Could not write profile:\n{e}")
+            messagebox.showerror(
+                "Save Failed",
+                user_error(
+                    "Could not save to slicer directory.",
+                    e,
+                    "Make sure the slicer is not running.",
+                ),
+            )
             return
 
         info_path = os.path.splitext(fp)[0] + ".info"
@@ -1289,7 +1301,14 @@ class App(tk.Tk):
                         self._write_info_file(fp, os.path.dirname(fp), profile)
                     self._update_status(f"Exported: {os.path.basename(fp)}")
                 except (OSError, json.JSONDecodeError) as e:
-                    messagebox.showerror("Export Error", str(e))
+                    messagebox.showerror(
+                        "Export Error",
+                        user_error(
+                            "Could not save the file.",
+                            e,
+                            "Check that the destination is writable.",
+                        ),
+                    )
                     logger.error(f"Export failed for {profile.name}: {e}")
         else:
             # Multiple profiles: choose directory
@@ -1316,7 +1335,10 @@ class App(tk.Tk):
         is_bambu = "BambuStudio" in name or "OrcaSlicer" in name
         fmt = "json" if is_bambu else "ini"
 
-        if messagebox.askyesno("Export", f"Export {len(selected)} to {name}?\n{base}"):
+        if messagebox.askyesno(
+            "Export",
+            f"Export {len(selected)} profiles to {name}?\n\nDestination: {base}\n\nRestart {name} to see changes.",
+        ):
             self._do_export(
                 selected,
                 base,
@@ -1487,18 +1509,21 @@ class App(tk.Tk):
     ) -> None:
         """Display export results and update status."""
         if errors:
+            total = exported + len(errors)
             messagebox.showwarning(
                 "Partial Export",
-                f"Exported {exported}, errors:\n\n" + "\n".join(errors),
+                f"Exported {exported} of {total} profiles.\n\n" + "\n".join(errors),
             )
         elif not quiet:
             messagebox.showinfo(
                 "Export Complete",
-                f"Exported {exported} profile(s) to:\n{out_dir}",
+                f"Exported {exported} {'profile' if exported == 1 else 'profiles'} to:\n{out_dir}",
             )
 
         if not quiet:
-            self._update_status(f"Exported {exported} profile(s).")
+            self._update_status(
+                f"Exported {exported} {'profile' if exported == 1 else 'profiles'}."
+            )
 
     @staticmethod
     def _write_info_file(
@@ -1567,8 +1592,8 @@ class App(tk.Tk):
             return
         count = len(panel.profiles)
         if not messagebox.askyesno(
-            "Clear List",
-            f"Remove all {count} profile(s) from the list?",
+            "Clear All",
+            f"Remove all {count} {'profile' if count == 1 else 'profiles'} from the list?",
             parent=self,
         ):
             return
@@ -1706,10 +1731,9 @@ class App(tk.Tk):
         messagebox.showinfo(
             "About",
             f"{APP_NAME} v{APP_VERSION}\n\n"
-            "Removes artificial printer-compatibility restrictions\n"
+            "Removes printer-compatibility restrictions\n"
             "from 3D printer slicer profiles.\n\n"
-            "Mirrors BambuStudio's settings layout.\n"
-            "Supports BambuStudio, OrcaSlicer, Prusa.",
+            "Supports BambuStudio, OrcaSlicer, PrusaSlicer.",
         )
 
     def _update_status(self, msg: str = "") -> None:
