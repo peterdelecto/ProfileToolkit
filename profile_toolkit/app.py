@@ -827,21 +827,16 @@ class App(tk.Tk):
 
         total = len(self.filament_panel.profiles)
         status = f"Loaded {loaded_f} filament profiles. {total} total."
-        if resolved_count:
-            status += f" Resolved inherited settings for {resolved_count}."
-
         # Surface unresolved inheritance and collision warnings
         warnings_parts = []
         if self.preset_index.unresolved_profiles:
             n = len(self.preset_index.unresolved_profiles)
             warnings_parts.append(
-                f"{n} profile(s) have unresolved inheritance "
-                "(parent preset not found)."
+                f"{n} profiles may have missing values \u2014 their parent presets weren't found."
             )
         if self.preset_index.collisions > 0:
             warnings_parts.append(
-                f"{self.preset_index.collisions} preset name collision(s) "
-                "(user presets override system defaults)."
+                f"{self.preset_index.collisions} user presets override factory defaults with the same name."
             )
         if warnings_parts:
             status += " \u26a0 " + " ".join(warnings_parts)
@@ -918,8 +913,6 @@ class App(tk.Tk):
 
         total = len(self.filament_panel.profiles)
         status = f"Loaded {loaded_f} filament profiles. {total} total."
-        if resolved_count:
-            status += f" Resolved inherited settings for {resolved_count}."
         self._update_status(status)
 
     # ── Profile Actions ──
@@ -972,7 +965,12 @@ class App(tk.Tk):
             status = f"Made {n} {'profile' if n == 1 else 'profiles'} universal."
         else:
             n = len(selected)
-            status = f"Retargeted {n} {'profile' if n == 1 else 'profiles'} to: {', '.join(dlg.result) if isinstance(dlg.result, list) else dlg.result}."
+            targets = (
+                ", ".join(dlg.result) if isinstance(dlg.result, list) else dlg.result
+            )
+            status = (
+                f"{n} {'profile' if n == 1 else 'profiles'} assigned to: {targets}."
+            )
         if saved_back:
             status += " Saved to slicer — restart to see changes."
         if dlg.result == "universal":
