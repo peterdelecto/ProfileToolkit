@@ -100,6 +100,7 @@ class ProfileDetailPanel(tk.Frame):
         self._current_tab = None
         self._edit_vars = {}
         self._undo_stack = []
+        self._profile_undo_stacks = {}
         self._pre_edit_modified = None
         self._param_order = []
         self._header_frame = None
@@ -170,7 +171,7 @@ class ProfileDetailPanel(tk.Frame):
                 bg=theme.bg2,
                 fg=theme.accent,
                 font=(UI_FONT, 13, "bold"),
-                cursor="hand2",
+                cursor="pointinghand",
             )
             json_lbl.pack(side="left", padx=(0, 6))
             json_lbl.bind(
@@ -187,7 +188,7 @@ class ProfileDetailPanel(tk.Frame):
                 bg=theme.bg2,
                 fg=theme.accent,
                 font=(UI_FONT, 13, "bold"),
-                cursor="hand2",
+                cursor="pointinghand",
             )
             mf_lbl.pack(side="left", padx=(0, 6))
             mf_lbl.bind("<Enter>", lambda e: mf_lbl.configure(fg=theme.accent_hover))
@@ -202,7 +203,7 @@ class ProfileDetailPanel(tk.Frame):
                 bg=theme.bg2,
                 fg=theme.accent,
                 font=(UI_FONT, 13, "bold"),
-                cursor="hand2",
+                cursor="pointinghand",
             )
             lp_lbl.pack(side="left")
             lp_lbl.bind("<Enter>", lambda e: lp_lbl.configure(fg=theme.accent_hover))
@@ -220,18 +221,34 @@ class ProfileDetailPanel(tk.Frame):
             self.current_profile.data[key] = old_value
         else:
             self.current_profile.data.pop(key, None)
-        if self.current_profile.resolved_data is not None:
-            self.current_profile.resolved_data[key] = old_value
+        if (
+            hasattr(self.current_profile, "resolved_data")
+            and self.current_profile.resolved_data is not None
+        ):
+            if was_in_data:
+                self.current_profile.resolved_data[key] = old_value
+            else:
+                self.current_profile.resolved_data.pop(key, None)
         if not self._undo_stack and self._pre_edit_modified is not None:
             self.current_profile.modified = self._pre_edit_modified
             self._pre_edit_modified = None
+        # Find which tab the key belongs to
+        target_tab = self._current_tab
+        for tab_name, sections in FILAMENT_LAYOUT:
+            for section_name, params in sections:
+                if any(p[0] == key for p in params):
+                    target_tab = tab_name
+                    break
+            else:
+                continue
+            break
         # Save scroll position
         canvas = getattr(self, "_content_canvas", None)
         scroll_y = canvas.yview()[0] if canvas else 0
-        if self._current_tab:
-            self._switch_tab(self._current_tab)
-        # Restore scroll position
-        if canvas:
+        if target_tab:
+            self._switch_tab(target_tab)
+        # Restore scroll position (only if staying on same tab)
+        if canvas and canvas.winfo_exists() and target_tab == self._current_tab:
             self.after_idle(lambda: canvas.yview_moveto(scroll_y))
         self._notify_list_refresh()
         return "break"
@@ -409,7 +426,7 @@ class ProfileDetailPanel(tk.Frame):
             bg=theme.bg2,
             fg=theme.inherited,
             font=(UI_FONT, 13, "underline"),
-            cursor="hand2",
+            cursor="pointinghand",
         )
         hist_lbl.pack(side="left")
         hist_lbl.bind("<Button-1>", lambda e, p=profile: self._show_changelog(p))
@@ -834,9 +851,12 @@ class ProfileDetailPanel(tk.Frame):
 
     def show_profile(self, profile: Profile) -> None:
         self._commit_edits()
+        # Save current undo stack before switching profiles
+        if self.current_profile:
+            self._profile_undo_stacks[id(self.current_profile)] = self._undo_stack
         self.current_profile = profile
         self._edit_vars = {}
-        self._undo_stack = []
+        self._undo_stack = self._profile_undo_stacks.get(id(profile), [])
         self._pre_edit_modified = None
         self._param_order = []
         self._indicator_frames = {}
@@ -891,6 +911,7 @@ class ProfileDetailPanel(tk.Frame):
 
     def _switch_tab(self, tab_name: str) -> None:
         """Switch to a different tab and render its content."""
+        self._commit_edits()
         theme = self.theme
         self._current_tab = tab_name
         self._param_order = []  # Reset navigation order for new tab
@@ -906,7 +927,7 @@ class ProfileDetailPanel(tk.Frame):
             for child in tab_frame.winfo_children():
                 if isinstance(child, tk.Label):
                     if getattr(child, "_is_orca_badge", False):
-                        child.configure(bg=bg)
+                        continue  # preserve badge color on tab switch
                     else:
                         child.configure(fg=fg, bg=bg, font=font)
 
@@ -1186,7 +1207,7 @@ class ProfileDetailPanel(tk.Frame):
                 bg=theme.param_bg,
                 fg=theme.fg3,
                 font=(UI_FONT, 12),
-                cursor="hand2",
+                cursor="pointinghand",
             )
             info_icon.pack()
             info_icon.bind(
@@ -1232,7 +1253,7 @@ class ProfileDetailPanel(tk.Frame):
                 font=(UI_FONT, 11, "bold"),
                 padx=6,
                 pady=1,
-                cursor="hand2",
+                cursor="pointinghand",
             )
             fill_btn.pack(side="left")
             _Tooltip(
@@ -1286,7 +1307,12 @@ class ProfileDetailPanel(tk.Frame):
         for key in list(profile._missing_conversion_keys):
             rec = get_recommendation(key, material)
             if rec and "typical" in rec:
+                was_in_data = key in profile.data
+                old_val = profile.data.get(key)
                 profile.data[key] = rec["typical"]
+                if profile.resolved_data is not None:
+                    profile.resolved_data[key] = rec["typical"]
+                self._undo_stack.append((key, old_val, was_in_data))
                 profile._missing_conversion_keys.discard(key)
                 filled += 1
             else:
@@ -1612,6 +1638,7 @@ class ProfileDetailPanel(tk.Frame):
         """
         text = text.strip()
         if len(text) > 10_000:
+            logger.warning("Input too long (%d chars), max 10000", len(text))
             return original
         # IMPORTANT: bool check must come BEFORE int -- bool is a subclass of int in Python.
         if isinstance(original, bool):
@@ -1639,6 +1666,8 @@ class ProfileDetailPanel(tk.Frame):
                 val = float(text)
                 if not math.isfinite(val):
                     return original
+                if abs(val) > 1e15:
+                    return original
                 return val
             except ValueError:
                 logger.debug(
@@ -1649,7 +1678,7 @@ class ProfileDetailPanel(tk.Frame):
                 return original
         if isinstance(original, list):
             # If user entered a single value, wrap in list matching original length
-            parts = [s.strip() for s in text.split(",")]
+            parts = [s.strip() for s in text.split(",") if s.strip()]
             result = []
             for i, part in enumerate(parts):
                 type_reference = (
@@ -1659,12 +1688,18 @@ class ProfileDetailPanel(tk.Frame):
                 )
                 if isinstance(type_reference, int):
                     try:
-                        result.append(int(part))
+                        v = int(part)
+                        if abs(v) > 10**9:
+                            v = type_reference
+                        result.append(v)
                     except ValueError:
                         result.append(type_reference)
                 elif isinstance(type_reference, float):
                     try:
-                        result.append(float(part))
+                        v = float(part)
+                        if not math.isfinite(v):
+                            v = type_reference
+                        result.append(v)
                     except ValueError:
                         result.append(type_reference)
                 else:
@@ -1732,13 +1767,16 @@ class ProfileDetailPanel(tk.Frame):
     def _open_recommendations(self) -> None:
         if not self.current_profile:
             return
-        if (
-            hasattr(self, "_rec_dialog")
-            and self._rec_dialog
-            and self._rec_dialog.winfo_exists()
-        ):
-            self._rec_dialog.lift()
-            return
+        try:
+            if (
+                hasattr(self, "_rec_dialog")
+                and self._rec_dialog
+                and self._rec_dialog.dlg.winfo_exists()
+            ):
+                self._rec_dialog.dlg.lift()
+                return
+        except (tk.TclError, AttributeError):
+            self._rec_dialog = None
         # Gather all loaded profiles of the same type for statistical comparison
         all_profiles = []
         try:
@@ -1751,7 +1789,11 @@ class ProfileDetailPanel(tk.Frame):
         from .dialogs import RecommendationsDialog
 
         self._rec_dialog = RecommendationsDialog(
-            self, self.theme, self.current_profile, all_profiles
+            self,
+            self.theme,
+            self.current_profile,
+            all_profiles,
+            refresh_callback=lambda p: self.show_profile(p),
         )
 
     def _detect_material_from_siblings(self) -> str:

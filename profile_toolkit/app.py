@@ -38,7 +38,12 @@ from .models import (
     BundleDetectedError,
     UnsupportedFormatError,
 )
-from .state import save_profile_state, restore_profile_state, reapply_unlock_state
+from .state import (
+    save_profile_state,
+    restore_profile_state,
+    reapply_unlock_state,
+    cleanup_stale_state,
+)
 from .panels import ProfileDetailPanel, ProfileListPanel, ComparePanel
 from .dialogs import OnlineImportWizard, PrusaBundleWizard
 from .widgets import ExportDialog, UnlockDialog, make_btn
@@ -326,28 +331,7 @@ class App(tk.Tk):
         status_frame = tk.Frame(self, bg=theme.bg)
         status_frame.pack(fill="x", side="bottom")
 
-        self._count_var = tk.StringVar()
-        tk.Label(
-            status_frame,
-            textvariable=self._count_var,
-            anchor="w",
-            bg=theme.bg,
-            fg=theme.fg,
-            font=(UI_FONT, 13),
-            padx=12,
-            pady=4,
-        ).pack(side="left")
-        tk.Label(
-            status_frame,
-            textvariable=self.status_var,
-            anchor="w",
-            bg=theme.bg,
-            fg=theme.fg,
-            font=(UI_FONT, 13),
-            padx=6,
-            pady=4,
-        ).pack(side="left", fill="x", expand=True)
-
+        self._count_var = tk.StringVar()  # kept for API compat
         if self.detected_slicers:
             tk.Label(
                 status_frame,
@@ -589,7 +573,7 @@ class App(tk.Tk):
                                 self.preset_index.resolve(p)
                                 if p.resolved_data:
                                     resolved += 1
-                            if i % 20 == 0:
+                            if i % 5 == 0:
                                 self._update_status(
                                     f"Resolving Prusa profiles... ({i}/{len(profiles)})"
                                 )
@@ -638,9 +622,10 @@ class App(tk.Tk):
             return
 
         # Prevent multiple concurrent loads
-        if getattr(self, "_preset_loading", False):
-            return
-        self._preset_loading = True
+        with self._preset_lock:
+            if getattr(self, "_preset_loading", False):
+                return
+            self._preset_loading = True
 
         panel = self._active_panel()
         slicer_names = ", ".join(self.detected_slicers.keys())
@@ -669,7 +654,8 @@ class App(tk.Tk):
                     return
 
                 resolved_count = self._index_and_resolve_presets(panel, all_new)
-                restore_profile_state(all_new)
+                # NOTE: restore_profile_state moved to _preset_load_done (main thread)
+                # to avoid mutating Profile objects concurrently with UI updates.
                 filament_batch, skipped_process = self._batch_presets_by_type(all_new)
 
                 # Hand off to main thread with pre-sorted batches
@@ -686,14 +672,35 @@ class App(tk.Tk):
                 )
             except Exception as e:
                 logger.error("Preset loading failed: %s", e, exc_info=True)
-                self._safe_after(
-                    0,
-                    lambda: self._preset_load_done(
-                        panel, [], 0, 0, slicer_names, [f"Internal error: {e}"]
-                    ),
-                )
+                try:
+                    self._safe_after(
+                        0,
+                        lambda: self._preset_load_done(
+                            panel, [], 0, 0, slicer_names, [f"Internal error: {e}"]
+                        ),
+                    )
+                except Exception:
+                    # _safe_after itself failed (widget destroyed) — reset flag directly
+                    with self._preset_lock:
+                        self._preset_loading = False
 
         threading.Thread(target=_bg_scan, daemon=True).start()
+
+        def _bg_timeout():
+            with self._preset_lock:
+                if self._preset_loading:
+                    self._preset_loading = False
+                    self._safe_after(
+                        0,
+                        lambda: (
+                            panel._hide_overlay(),
+                            self._update_status(
+                                "Preset loading timed out after 2 minutes."
+                            ),
+                        ),
+                    )
+
+        threading.Timer(120, _bg_timeout).start()
 
     def _resolve_preset_paths(
         self, panel: ProfileListPanel, slicer_names: str
@@ -796,6 +803,10 @@ class App(tk.Tk):
         self._preset_loading = False
         panel._hide_overlay()
 
+        # Restore persisted state on the main thread (safe to mutate profiles here)
+        if filament_batch:
+            restore_profile_state(filament_batch)
+
         loaded_f = len(filament_batch)
 
         if not loaded_f:
@@ -806,15 +817,35 @@ class App(tk.Tk):
             self.filament_panel.add_profiles(filament_batch)
 
         if errors:
+            error_list = errors[:20]
+            if len(errors) > 20:
+                error_list = list(error_list) + [f"... and {len(errors) - 20} more"]
             messagebox.showwarning(
                 "Some Files Failed",
-                f"Loaded {loaded_f} profiles. Errors:\n\n" + "\n".join(errors[:20]),
+                f"Loaded {loaded_f} profiles. Errors:\n\n" + "\n".join(error_list),
             )
 
         total = len(self.filament_panel.profiles)
         status = f"Loaded {loaded_f} filament profiles. {total} total."
         if resolved_count:
             status += f" Resolved inherited settings for {resolved_count}."
+
+        # Surface unresolved inheritance and collision warnings
+        warnings_parts = []
+        if self.preset_index.unresolved_profiles:
+            n = len(self.preset_index.unresolved_profiles)
+            warnings_parts.append(
+                f"{n} profile(s) have unresolved inheritance "
+                "(parent preset not found)."
+            )
+        if self.preset_index.collisions > 0:
+            warnings_parts.append(
+                f"{self.preset_index.collisions} preset name collision(s) "
+                "(user presets override system defaults)."
+            )
+        if warnings_parts:
+            status += " \u26a0 " + " ".join(warnings_parts)
+
         self._update_status(status)
 
     def _load_files(self, path_hint_tuples: list[tuple]) -> None:
@@ -912,13 +943,25 @@ class App(tk.Tk):
             else:
                 profile.retarget(dlg.result)
 
-            # Auto-save back to slicer directory
-            if self._is_slicer_profile(profile):
-                try:
-                    self._save_back_to_slicer(profile)
-                    saved_back += 1
-                except (OSError, json.JSONDecodeError) as exc:
-                    logger.warning(f"Auto-save failed for {profile.name}: {exc}")
+        # Confirm before auto-saving to slicer
+        slicer_profiles = [p for p in selected if self._is_slicer_profile(p)]
+        if slicer_profiles:
+            names = "\n".join(f"  \u2022 {p.name}" for p in slicer_profiles[:10])
+            if len(slicer_profiles) > 10:
+                names += f"\n  ... and {len(slicer_profiles) - 10} more"
+            if not messagebox.askyesno(
+                "Save to Slicer?",
+                f"Save changes to {len(slicer_profiles)} profile(s) in your slicer directory?\n\n{names}\n\nRestart your slicer to see changes.",
+                parent=self,
+            ):
+                slicer_profiles = []
+
+        for profile in slicer_profiles:
+            try:
+                self._save_back_to_slicer(profile)
+                saved_back += 1
+            except (OSError, json.JSONDecodeError) as exc:
+                logger.warning(f"Auto-save failed for {profile.name}: {exc}")
 
         panel._refresh_list()
         panel._on_select()
@@ -937,7 +980,8 @@ class App(tk.Tk):
             return False
         src = os.path.normpath(profile.source_path)
         for slicer_path in self.detected_slicers.values():
-            if src.startswith(os.path.normpath(slicer_path)):
+            prefix = os.path.normpath(slicer_path)
+            if src.startswith(prefix + os.sep) or src == prefix:
                 return True
         return False
 
@@ -1060,8 +1104,9 @@ class App(tk.Tk):
             self._switch_tab("compare")
 
     def _close_compare(self) -> None:
-        """Clear the comparison and show the waiting state."""
+        """Clear the comparison and return to the filament list."""
         self.compare_panel.show_waiting()
+        self._switch_tab("filament")
 
     def _on_convert_tab(self) -> None:
         """Handle Convert tab click — switches filament_panel to convert mode."""
@@ -1075,10 +1120,10 @@ class App(tk.Tk):
         from .constants import SLICER_SHORT_LABELS, FILAMENT_LAYOUT
 
         short = SLICER_SHORT_LABELS.get(target, target)
-        new_profile, dropped, missing = profile.convert_to(target)
+        new_profile, dropped, missing, conv_warnings = profile.convert_to(target)
 
         # Rename copy to indicate conversion
-        new_profile.data["name"] = f"{profile.name} ({short})"
+        new_profile.data["name"] = f"{new_profile.name} ({short})"
 
         # Build JSON key → UI label lookup from layout
         key_labels = {}
@@ -1192,11 +1237,18 @@ class App(tk.Tk):
         if not self._warn_missing_conversion_keys(selected):
             return
 
+        # Auto-detect format from profile origin (Prusa → INI, others → JSON)
+        default_fmt = "json"
+        if selected and any(
+            getattr(p, "origin", "").lower().startswith("prusa") for p in selected
+        ):
+            default_fmt = "ini"
         dlg = ExportDialog(
             self,
             self.theme,
             len(selected),
             detected_slicers=self.detected_slicers,
+            default_format=default_fmt,
         )
         if dlg.result is None:
             return
@@ -1224,13 +1276,17 @@ class App(tk.Tk):
             )
             if fp:
                 try:
-                    content = (
-                        profile.to_ini(flatten=True)
-                        if fmt == "ini"
-                        else profile.to_json(flatten=True)
-                    )
+                    if fmt == "ini" and hasattr(profile, "to_prusa_ini"):
+                        content = profile.to_prusa_ini()
+                    elif fmt == "ini":
+                        content = profile.to_ini(flatten=True)
+                    else:
+                        content = profile.to_json(flatten=True)
                     with open(fp, "w", encoding="utf-8") as f:
                         f.write(content)
+                    # Write .info for Bambu slicer compatibility
+                    if fmt == "json" and hasattr(self, "_write_info_file"):
+                        self._write_info_file(fp, os.path.dirname(fp), profile)
                     self._update_status(f"Exported: {os.path.basename(fp)}")
                 except (OSError, json.JSONDecodeError) as e:
                     messagebox.showerror("Export Error", str(e))
@@ -1258,10 +1314,16 @@ class App(tk.Tk):
 
         base = SlicerDetector.get_export_dir(path)
         is_bambu = "BambuStudio" in name or "OrcaSlicer" in name
+        fmt = "json" if is_bambu else "ini"
 
         if messagebox.askyesno("Export", f"Export {len(selected)} to {name}?\n{base}"):
             self._do_export(
-                selected, base, organize=True, flatten=True, write_info=is_bambu
+                selected,
+                base,
+                organize=True,
+                flatten=True,
+                write_info=is_bambu,
+                fmt=fmt,
             )
 
     def _on_install_to_slicer(self, slicer_name: str, slicer_path: str) -> None:
@@ -1304,12 +1366,14 @@ class App(tk.Tk):
             return
 
         is_bambu = "BambuStudio" in slicer_name or "OrcaSlicer" in slicer_name
+        fmt = "json" if is_bambu else "ini"
         exported, errors = self._export_profiles_batch(
             selected,
             export_base,
             organize=True,
             flatten=True,
             write_info=is_bambu,
+            fmt=fmt,
         )
         self._show_export_result(exported, errors, export_base, quiet=True)
         profiles_word = "profile" if exported == 1 else "profiles"
@@ -1620,16 +1684,18 @@ class App(tk.Tk):
                 "instantiation",
                 "profile_id",
                 "filament_id",
+                "inherits",
             ):
                 new_data.pop(k, None)
 
             new_profile = Profile(
                 new_data,
-                source.source_path,
+                None,
                 source.source_type,
                 type_hint=source.type_hint,
                 origin=source.origin,
             )
+            new_profile.modified = True
             panel.add_profiles([new_profile])
             self._update_status(f"Created '{result['name']}' from '{source.name}'.")
 
@@ -1647,18 +1713,13 @@ class App(tk.Tk):
         )
 
     def _update_status(self, msg: str = "") -> None:
-        if msg:
-            self.status_var.set(f"[{datetime.now().strftime('%H:%M:%S')}]  {msg}")
-        self._update_counts()
+        pass  # status bar simplified — slicer detection only
 
     def _update_counts(self) -> None:
-        filament_count = len(self.filament_panel.profiles)
-        self._count_var.set(f"{filament_count} filament profiles")
+        pass  # count display removed
 
     def _show_temp_status(self, msg: str, duration: int = 4000) -> None:
-        """Show a temporary status message that reverts after duration ms."""
-        self.status_var.set(f"[{datetime.now().strftime('%H:%M:%S')}]  {msg}")
-        self._safe_after(duration, self._update_counts)
+        pass  # status bar simplified
 
     def _on_show_folder(self) -> None:
         """Open the source folder of the currently selected profile."""
@@ -1746,6 +1807,11 @@ def run() -> None:
         return
 
     _set_macos_app_name()
+    # Clean up stale state files from profiles that no longer exist on disk
+    try:
+        cleanup_stale_state(max_age_days=90)
+    except Exception:
+        pass
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",

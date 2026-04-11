@@ -22,6 +22,7 @@ from .constants import (
 from .theme import Theme
 from .models import Profile, SlicerDetector
 from .providers import ALL_PROVIDERS, PROVIDER_CATEGORIES, OnlineProfileEntry
+from .providers_pkg.base import OnlineProvider
 from .state import load_online_prefs, save_online_prefs
 from .utils import bind_scroll, lighten_color
 from .widgets import ScrollableFrame, make_btn
@@ -54,6 +55,7 @@ class OnlineImportWizard(tk.Toplevel):
         self._current_step = 0
         self._selected_provider = None
         self._catalog = []  # list of OnlineProfileEntry
+        self._catalog_provider_id = ""  # provider that fetched current catalog
         self._filtered_catalog = []  # after applying filters
         self._selected_entries = []  # entries user checked
         self._import_status = tk.StringVar(value="")  # download progress text
@@ -371,7 +373,7 @@ class OnlineImportWizard(tk.Toplevel):
                         bg=row_bg,
                         fg=theme.fg3,
                         font=(UI_FONT, 11),
-                        cursor="hand2",
+                        cursor="pointinghand",
                         padx=8,
                     )
                     link_lbl.pack(side="right", padx=(0, 8), pady=8)
@@ -434,11 +436,7 @@ class OnlineImportWizard(tk.Toplevel):
         self._build_browse_list_container(frame)
 
         # Reuse catalog if same provider and we already have data (#4)
-        if (
-            self._catalog
-            and self._selected_provider
-            and self._selected_provider.id == provider.id
-        ):
+        if self._catalog and self._catalog_provider_id == provider.id:
             self._on_catalog_loaded(self._catalog)
             return
 
@@ -460,6 +458,19 @@ class OnlineImportWizard(tk.Toplevel):
             fg=self.theme.fg,
             font=(UI_FONT, 14, "bold"),
         ).pack(side="left")
+
+        # SSL degradation warning
+        if OnlineProvider.ssl_is_degraded():
+            warn = tk.Label(
+                hdr,
+                text="\u26a0 SSL verification disabled — downloads may be insecure",
+                bg=self.theme.note,
+                fg=self.theme.bg,
+                font=(UI_FONT, 11),
+                padx=8,
+                pady=2,
+            )
+            warn.pack(side="right", padx=(8, 0))
 
         # Status var — displayed inside the profile list pane
         self._browse_status = tk.StringVar(value="Fetching catalog...")
@@ -713,6 +724,9 @@ class OnlineImportWizard(tk.Toplevel):
         if self._current_step != 1:
             return  # User navigated away; don't touch destroyed widgets
         self._catalog = catalog
+        self._catalog_provider_id = (
+            self._selected_provider.id if self._selected_provider else ""
+        )
         if not catalog:
             self._browse_status.set("No profiles found from this source.")
             self._show_pane_status("No profiles found from this source.")
@@ -767,6 +781,18 @@ class OnlineImportWizard(tk.Toplevel):
             self._prev_catalog_names = None
         else:
             self._browse_status.set(f"{len(catalog)} profiles available")
+
+        # Restore saved filter values if they exist in current catalog (#6)
+        for var, key, combo in (
+            (self._filter_material, "last_material", self._mat_combo),
+            (self._filter_brand, "last_brand", self._brand_combo),
+            (self._filter_machine, "last_machine", self._machine_combo),
+            (self._filter_nozzle, "last_nozzle", self._nozzle_combo),
+        ):
+            saved = self._prefs.get(key, "All")
+            if saved != "All" and saved in list(combo["values"]):
+                var.set(saved)
+
         self._apply_filters()
 
         # Fire non-blocking freshness check if catalog came from bundle
@@ -807,7 +833,7 @@ class OnlineImportWizard(tk.Toplevel):
             bg=theme.bg,
             fg=theme.converted,
             font=(UI_FONT, 11, "italic"),
-            cursor="hand2",
+            cursor="pointinghand",
         )
         badge.pack(side="right")
         badge.bind("<Button-1>", lambda e: self._refresh_from_online(badge))
@@ -1038,11 +1064,9 @@ class OnlineImportWizard(tk.Toplevel):
                 wraplength=600,
                 command=lambda e=entry, v=var: setattr(e, "selected", v.get()),
             )
-            cb.pack(side="left", padx=(8, 4), pady=4, fill="x", expand=True)
+            cb.pack(side="left", padx=(8, 4), pady=4)
 
-            # Detail line
-            text_frame = tk.Frame(row, bg=bg)
-            text_frame.pack(side="left", fill="x", expand=True, pady=4)
+            # Detail tags (right-aligned so they stay in a consistent column)
             detail_parts = []
             if entry.material:
                 detail_parts.append(entry.material)
@@ -1051,14 +1075,16 @@ class OnlineImportWizard(tk.Toplevel):
             if entry.slicer:
                 detail_parts.append(entry.slicer)
             if detail_parts:
+                text_frame = tk.Frame(row, bg=bg)
+                text_frame.pack(side="right", padx=(4, 8), pady=4)
                 tk.Label(
                     text_frame,
                     text=" \u2022 ".join(detail_parts),
                     bg=bg,
                     fg=theme.fg3,
                     font=(UI_FONT, 12),
-                    anchor="w",
-                ).pack(anchor="w")
+                    anchor="e",
+                ).pack(anchor="e")
 
             # Bind scroll on this row and its children directly (avoids full-tree walk)
             bind_scroll(row, self._browse_canvas)
@@ -1081,7 +1107,7 @@ class OnlineImportWizard(tk.Toplevel):
                 bg=theme.bg3,
                 fg=theme.converted,
                 font=(UI_FONT, 11, "underline"),
-                cursor="hand2",
+                cursor="pointinghand",
                 pady=8,
             )
             show_more_btn.pack(anchor="center")
@@ -1448,19 +1474,16 @@ class OnlineImportWizard(tk.Toplevel):
                     for td in tmp_dirs:
                         shutil.rmtree(td, ignore_errors=True)
                     return
-                self.after(
-                    0,
-                    lambda i=i, n=entry.name: (
-                        self._import_status.set(
-                            f"Downloading {i+1}/{len(entries)}: {n}"
-                        ),
-                        (
-                            self._import_progress.configure(value=i + 1)
-                            if hasattr(self, "_import_progress")
-                            else None
-                        ),
-                    ),
-                )
+
+                def _update_progress(idx: int = i, name: str = entry.name) -> None:
+                    self._import_status.set(
+                        f"Downloading {idx+1}/{len(entries)}: {name}"
+                    )
+                    pb = getattr(self, "_import_progress", None)
+                    if pb:
+                        pb.configure(value=idx + 1)
+
+                self.after(0, _update_progress)
                 try:
                     data, fname = provider.download_profile(entry)
                     if data and fname:
