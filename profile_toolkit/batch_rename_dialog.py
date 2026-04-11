@@ -338,6 +338,8 @@ class BatchRenameDialog(tk.Toplevel):
         )
         self._preview_text.tag_configure("arrow", foreground=theme.fg3)
         self._preview_text.tag_configure("changed", foreground=theme.accent)
+        self._preview_text.tag_configure("collision", foreground="#e74c3c")
+        self._has_collisions = False
         preview_sb = ttk.Scrollbar(
             preview_frame, orient="vertical", command=self._preview_text.yview
         )
@@ -361,6 +363,16 @@ class BatchRenameDialog(tk.Toplevel):
         btn_frame.pack(fill="x", padx=16, pady=(8, 12))
 
         def _apply() -> None:
+            if self._has_collisions:
+                from tkinter import messagebox
+
+                if not messagebox.askokcancel(
+                    "Duplicate Names",
+                    "Some profiles will have duplicate names after renaming.\n"
+                    "Continue anyway?",
+                    parent=self,
+                ):
+                    return
             renamed = 0
             for p in self.profiles:
                 new_name = Profile.sanitize_name(self._compute_name(p))
@@ -436,14 +448,29 @@ class BatchRenameDialog(tk.Toplevel):
     def _update_preview(self) -> None:
         self._preview_text.configure(state="normal")
         self._preview_text.delete("1.0", "end")
+
+        # Compute all new names and detect duplicates
+        new_names = [self._compute_name(p) for p in self.profiles]
+        seen: dict[str, int] = {}
+        duplicates: set[str] = set()
+        for nm in new_names:
+            seen[nm] = seen.get(nm, 0) + 1
+        for nm, count in seen.items():
+            if count > 1:
+                duplicates.add(nm)
+        self._has_collisions = bool(duplicates)
+
         for i, p in enumerate(self.profiles[:30]):
-            new = self._compute_name(p)
+            new = new_names[i]
             if i > 0:
                 self._preview_text.insert("end", "\n")
             if new != p.name:
                 self._preview_text.insert("end", p.name)
                 self._preview_text.insert("end", "  \u2192  ", "arrow")
-                self._preview_text.insert("end", new, "changed")
+                tag = "collision" if new in duplicates else "changed"
+                self._preview_text.insert("end", new, tag)
+                if new in duplicates:
+                    self._preview_text.insert("end", "  \u26a0 duplicate", "collision")
             else:
                 self._preview_text.insert("end", f"{p.name}  (unchanged)")
         if len(self.profiles) > 30:

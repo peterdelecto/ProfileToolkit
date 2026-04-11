@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -212,15 +213,26 @@ class ProfileDetailPanel(tk.Frame):
         """Undo the last parameter edit."""
         if not self._undo_stack or not self.current_profile:
             return "break"
-        key, old_value = self._undo_stack.pop()
-        self.current_profile.data[key] = old_value
+        entry = self._undo_stack.pop()
+        key, old_value = entry[0], entry[1]
+        was_in_data = entry[2] if len(entry) > 2 else True
+        if was_in_data:
+            self.current_profile.data[key] = old_value
+        else:
+            self.current_profile.data.pop(key, None)
         if self.current_profile.resolved_data is not None:
             self.current_profile.resolved_data[key] = old_value
         if not self._undo_stack and self._pre_edit_modified is not None:
             self.current_profile.modified = self._pre_edit_modified
             self._pre_edit_modified = None
+        # Save scroll position
+        canvas = getattr(self, "_content_canvas", None)
+        scroll_y = canvas.yview()[0] if canvas else 0
         if self._current_tab:
             self._switch_tab(self._current_tab)
+        # Restore scroll position
+        if canvas:
+            self.after_idle(lambda: canvas.yview_moveto(scroll_y))
         self._notify_list_refresh()
         return "break"
 
@@ -682,6 +694,7 @@ class ProfileDetailPanel(tk.Frame):
                     "Renamed", f"{old_name} \u2192 {new_name}", snapshot=snapshot
                 )
             _rebuild_label()
+            self._notify_list_refresh()
 
         def _cancel(event: Optional[tk.Event] = None) -> None:
             if not self._header_rename_active:
@@ -1248,10 +1261,13 @@ class ProfileDetailPanel(tk.Frame):
         """Fill a missing conversion param with the given value."""
         if not self.current_profile:
             return
-        self._undo_stack.append((key, self.current_profile.data.get(key)))
+        was_in_data = key in self.current_profile.data
+        self._undo_stack.append((key, self.current_profile.data.get(key), was_in_data))
         if len(self._undo_stack) > 200:
             self._undo_stack.pop(0)
         self.current_profile.data[key] = value
+        if self.current_profile.resolved_data is not None:
+            self.current_profile.resolved_data[key] = value
         self.current_profile._missing_conversion_keys.discard(key)
         self.current_profile.modified = True
         self.current_profile.log_change(
@@ -1383,7 +1399,8 @@ class ProfileDetailPanel(tk.Frame):
             if new_val != original_value:
                 if self._pre_edit_modified is None:
                     self._pre_edit_modified = self.current_profile.modified
-                self._undo_stack.append((key, original_value))
+                was_in_data = key in self.current_profile.data
+                self._undo_stack.append((key, original_value, was_in_data))
                 if len(self._undo_stack) > 200:
                     self._undo_stack.pop(0)
                 self.current_profile.data[key] = new_val
@@ -1544,22 +1561,26 @@ class ProfileDetailPanel(tk.Frame):
         if not self.current_profile or key not in self._edit_vars:
             return
         var_or_widget, original, kind = self._edit_vars[key]
-        if kind == "entry":
-            new_str = var_or_widget.get()
-        elif kind == "text":
-            new_str = var_or_widget.get("1.0", "end-1c")
-        elif kind == "combo":
-            # Combo edits are committed immediately in _on_enum_change;
-            # nothing to do here -- the profile.data is already up to date.
+        try:
+            if kind == "entry":
+                new_str = var_or_widget.get()
+            elif kind == "text":
+                new_str = var_or_widget.get("1.0", "end-1c")
+            elif kind == "combo":
+                # Combo edits are committed immediately in _on_enum_change;
+                # nothing to do here -- the profile.data is already up to date.
+                return
+            else:
+                return  # "label" kind -- not actively editing
+        except tk.TclError:
             return
-        else:
-            return  # "label" kind -- not actively editing
 
         new_val = self._parse_edit(new_str, original)
         if new_val != original:
             if self._pre_edit_modified is None:
                 self._pre_edit_modified = self.current_profile.modified
-            self._undo_stack.append((key, original))
+            was_in_data = key in self.current_profile.data
+            self._undo_stack.append((key, original, was_in_data))
             if len(self._undo_stack) > 200:
                 self._undo_stack.pop(0)
             self.current_profile.data[key] = new_val
@@ -1597,20 +1618,28 @@ class ProfileDetailPanel(tk.Frame):
             return text.lower() in ("yes", "true", "1")
         if isinstance(original, int):
             try:
-                return int(text)
+                val = int(text)
             except ValueError:
                 try:
-                    return int(float(text))
-                except ValueError:
+                    val = int(float(text))
+                    if not math.isfinite(float(text)):
+                        return original
+                except (ValueError, OverflowError):
                     logger.debug(
                         "Edit parse failed for key, reverting to original: text=%r, original=%r",
                         text,
                         original,
                     )
                     return original
+            if abs(val) > 10**9:
+                return original
+            return val
         if isinstance(original, float):
             try:
-                return float(text)
+                val = float(text)
+                if not math.isfinite(val):
+                    return original
+                return val
             except ValueError:
                 logger.debug(
                     "Edit parse failed for key, reverting to original: text=%r, original=%r",
@@ -1640,6 +1669,9 @@ class ProfileDetailPanel(tk.Frame):
                         result.append(type_reference)
                 else:
                     result.append(part)
+            # Truncate extra items to match original length.
+            if len(result) > len(original):
+                result = result[: len(original)]
             # Pad shorter input to original length using last entered value.
             # Guard: if all parts failed to parse, result may be empty -- don't crash.
             if result and len(result) < len(original):
@@ -1700,6 +1732,13 @@ class ProfileDetailPanel(tk.Frame):
     def _open_recommendations(self) -> None:
         if not self.current_profile:
             return
+        if (
+            hasattr(self, "_rec_dialog")
+            and self._rec_dialog
+            and self._rec_dialog.winfo_exists()
+        ):
+            self._rec_dialog.lift()
+            return
         # Gather all loaded profiles of the same type for statistical comparison
         all_profiles = []
         try:
@@ -1711,7 +1750,9 @@ class ProfileDetailPanel(tk.Frame):
             pass
         from .dialogs import RecommendationsDialog
 
-        RecommendationsDialog(self, self.theme, self.current_profile, all_profiles)
+        self._rec_dialog = RecommendationsDialog(
+            self, self.theme, self.current_profile, all_profiles
+        )
 
     def _detect_material_from_siblings(self) -> str:
         try:

@@ -85,10 +85,15 @@ class ProfileListPanel(tk.Frame):
         # Detail panel on top by default
         self.detail.tkraise()
 
-        # Register filter trace now that tree exists
-        self._filter_trace_id = self._filter_var.trace_add(
-            "write", lambda *a: self._refresh_list()
-        )
+        # Register filter trace now that tree exists (debounced)
+        self._filter_after_id = None
+
+        def _debounced_refresh(*args):
+            if self._filter_after_id:
+                self.after_cancel(self._filter_after_id)
+            self._filter_after_id = self.after(150, self._refresh_list)
+
+        self._filter_trace_id = self._filter_var.trace_add("write", _debounced_refresh)
         self.bind("<Destroy>", self._on_destroy_list_panel, add="+")
 
         # Overlay state
@@ -1003,25 +1008,37 @@ class ProfileListPanel(tk.Frame):
             if getattr(self, "_rename_finishing", False):
                 return
             self._rename_finishing = True
-            self._rename_active = False
-            new_name = Profile.sanitize_name(name_var.get())
-            entry.destroy()
-            if new_name and new_name != profile.name:
-                old_name = profile.name
-                snapshot = {"name": old_name, "_modified": profile.modified}
-                profile.data["name"] = new_name
-                profile.modified = True
-                profile.log_change(
-                    "Renamed", f"{old_name} \u2192 {new_name}", snapshot=snapshot
-                )
-                self._refresh_list()
-                # Re-select and show updated profile
-                try:
-                    self.tree.selection_set(str(idx))
-                except tk.TclError:
-                    pass
-                self._on_select()
-            self._rename_finishing = False
+            try:
+                self._rename_active = False
+                new_name = Profile.sanitize_name(name_var.get())
+                entry.destroy()
+                if new_name and new_name != profile.name:
+                    # Check for duplicate names
+                    duplicate = any(
+                        p.name == new_name for p in self.profiles if p is not profile
+                    )
+                    if duplicate:
+                        messagebox.showwarning(
+                            "Duplicate Name",
+                            f'A profile named "{new_name}" already exists.',
+                            parent=self.tree,
+                        )
+                    old_name = profile.name
+                    snapshot = {"name": old_name, "_modified": profile.modified}
+                    profile.data["name"] = new_name
+                    profile.modified = True
+                    profile.log_change(
+                        "Renamed", f"{old_name} \u2192 {new_name}", snapshot=snapshot
+                    )
+                    self._refresh_list()
+                    # Re-select and show updated profile
+                    try:
+                        self.tree.selection_set(str(idx))
+                    except tk.TclError:
+                        pass
+                    self._on_select()
+            finally:
+                self._rename_finishing = False
 
         def _cancel(event: Optional[tk.Event] = None) -> None:
             self._rename_active = False
@@ -1074,6 +1091,10 @@ class ProfileListPanel(tk.Frame):
                 self.profiles.pop(i)
         self._refresh_list()
         self.detail._show_placeholder()
+        # Notify app that selection changed (clears comparison cache)
+        if self.app and self.profile_type == "filament":
+            if hasattr(self.app, "_on_filament_selection_changed"):
+                self.app._on_filament_selection_changed()
 
     def select_all(self) -> None:
         all_items = list(self.tree.get_children())
@@ -1131,19 +1152,29 @@ class ProfileListPanel(tk.Frame):
 
         deleted = 0
         errors = []
+        successfully_deleted = []
         for name, fpath in paths:
             try:
                 os.remove(fpath)
                 deleted += 1
+                successfully_deleted.append(fpath)
             except OSError as e:
                 errors.append(f"{os.path.basename(fpath)}: {e.strerror}")
 
-        # Also remove from list
-        self.remove_selected()
+        # Only remove profiles whose files were successfully deleted
+        if successfully_deleted:
+            deleted_set = set(successfully_deleted)
+            indices_to_remove = [
+                i for i, p in enumerate(self.profiles) if p.source_path in deleted_set
+            ]
+            for i in sorted(indices_to_remove, reverse=True):
+                self.profiles.pop(i)
+            self._refresh_list()
+            self.detail._show_placeholder()
 
         if errors:
             messagebox.showwarning("Some files could not be deleted", "\n".join(errors))
-        else:
+        if deleted:
             self.app._update_status(
                 f"Deleted {deleted} file{'s' if deleted != 1 else ''} from disk."
             )

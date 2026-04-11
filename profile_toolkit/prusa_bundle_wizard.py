@@ -63,17 +63,25 @@ class PrusaBundleWizard(tk.Toplevel):
         import threading
 
         self._parse_result: list | None = None
+        self._parse_error: str | None = None
+        self._poll_count: int = 0
+        self._bundle_path = bundle_path
 
         def _parse():
-            sections = ProfileEngine.parse_prusa_bundle(bundle_path)
-            all_names = sorted(
-                [
-                    name
-                    for name in sections.get("filaments", {})
-                    if not (name.startswith("*") and name.endswith("*"))
-                ]
-            )
-            self._parse_result = (sections, all_names)
+            try:
+                sections = ProfileEngine.parse_prusa_bundle(bundle_path)
+                all_names = sorted(
+                    [
+                        name
+                        for name in sections.get("filaments", {})
+                        if not (name.startswith("*") and name.endswith("*"))
+                    ]
+                )
+                self._parse_result = (sections, all_names)
+            except Exception as e:
+                logger.error("Failed to parse bundle: %s", e, exc_info=True)
+                self._parse_error = str(e)
+                self._parse_result = {}  # signals completion with error
 
         threading.Thread(target=_parse, daemon=True).start()
         self._poll_parse()
@@ -82,16 +90,29 @@ class PrusaBundleWizard(tk.Toplevel):
 
     def _poll_parse(self) -> None:
         """Poll for background parse completion from the main thread."""
-        if self._parse_result is not None:
-            sections, all_names = self._parse_result
-            self._sections = sections
-            self.parsed_sections = sections  # cache for caller
-            self._all_filaments = all_names
-            self._matching_filaments = all_names
-            self._loading_label.destroy()
-            self._build_filament_list()
-        else:
+        self._poll_count += 1
+        if self._poll_count > 300:  # 30 seconds at 100ms intervals
+            self._show_error(
+                "Bundle parsing timed out. The file may be too large or corrupted."
+            )
+            return
+        if self._parse_result is None:
             self.after(100, self._poll_parse)
+            return
+        if self._parse_error:
+            self._show_error(f"Failed to parse bundle:\n{self._parse_error}")
+            return
+        sections, all_names = self._parse_result
+        self._sections = sections
+        self.parsed_sections = sections  # cache for caller
+        self._all_filaments = all_names
+        self._matching_filaments = all_names
+        self._loading_label.destroy()
+        self._build_filament_list()
+
+    def _show_error(self, msg: str) -> None:
+        messagebox.showerror("Bundle Error", msg, parent=self)
+        self.destroy()
 
     def _clear_body(self) -> None:
         for w in self._body.winfo_children():

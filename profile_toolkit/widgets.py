@@ -89,12 +89,20 @@ class Tooltip:
         if self._theme is None:
             return
         try:
+            if not self.widget.winfo_exists():
+                return
+        except tk.TclError:
+            return
+        try:
             if not self.widget.winfo_toplevel().focus_displayof():
                 return
         except (tk.TclError, AttributeError):
             pass
-        x = self.widget.winfo_rootx() + 20
-        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        try:
+            x = self.widget.winfo_rootx() + 20
+            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        except tk.TclError:
+            return
         self._tip = tooltip_window = tk.Toplevel(self.widget)
         tooltip_window.wm_overrideredirect(True)
         tooltip_window.wm_geometry(f"+{x}+{y}")

@@ -40,7 +40,7 @@ from .models import (
 )
 from .state import save_profile_state, restore_profile_state, reapply_unlock_state
 from .panels import ProfileDetailPanel, ProfileListPanel, ComparePanel
-from .dialogs import CompareDialog, OnlineImportWizard, PrusaBundleWizard
+from .dialogs import OnlineImportWizard, PrusaBundleWizard
 from .widgets import ExportDialog, UnlockDialog, make_btn
 
 logger = logging.getLogger(__name__)
@@ -74,6 +74,7 @@ class App(tk.Tk):
         """Initialize the application window and UI."""
         super().__init__()
         self.theme = Theme()
+        self._preset_lock = threading.Lock()
 
         # Load PNG icon sets — keep references on self to prevent GC of PhotoImages
         try:
@@ -580,18 +581,19 @@ class App(tk.Tk):
                     bp, wizard.result, sections=cached
                 )
                 if profiles:
-                    self.preset_index.add_profiles(profiles)
-                    resolved = 0
-                    for i, p in enumerate(profiles):
-                        if p.inherits:
-                            self.preset_index.resolve(p)
-                            if p.resolved_data:
-                                resolved += 1
-                        if i % 20 == 0:
-                            self._update_status(
-                                f"Resolving Prusa profiles... ({i}/{len(profiles)})"
-                            )
-                            self.update_idletasks()
+                    with self._preset_lock:
+                        self.preset_index.add_profiles(profiles)
+                        resolved = 0
+                        for i, p in enumerate(profiles):
+                            if p.inherits:
+                                self.preset_index.resolve(p)
+                                if p.resolved_data:
+                                    resolved += 1
+                            if i % 20 == 0:
+                                self._update_status(
+                                    f"Resolving Prusa profiles... ({i}/{len(profiles)})"
+                                )
+                                self.update_idletasks()
                     self.filament_panel.add_profiles(profiles)
                     total = len(self.filament_panel.profiles)
                     status = f"Imported {len(profiles)} Prusa factory profiles. {total} total."
@@ -648,39 +650,48 @@ class App(tk.Tk):
 
         def _bg_scan() -> None:
             """Background thread: discover, load, index, and resolve preset files."""
-            pairs = self._resolve_preset_paths(panel, slicer_names)
-            if not pairs:
-                self._safe_after(
-                    0, lambda: self._preset_load_done(panel, [], 0, 0, slicer_names)
-                )
-                return
+            try:
+                pairs = self._resolve_preset_paths(panel, slicer_names)
+                if not pairs:
+                    self._safe_after(
+                        0, lambda: self._preset_load_done(panel, [], 0, 0, slicer_names)
+                    )
+                    return
 
-            all_new, errors = self._load_preset_files(panel, pairs)
-            if not all_new:
+                all_new, errors = self._load_preset_files(panel, pairs)
+                if not all_new:
+                    self._safe_after(
+                        0,
+                        lambda: self._preset_load_done(
+                            panel, [], 0, 0, slicer_names, errors
+                        ),
+                    )
+                    return
+
+                resolved_count = self._index_and_resolve_presets(panel, all_new)
+                restore_profile_state(all_new)
+                filament_batch, skipped_process = self._batch_presets_by_type(all_new)
+
+                # Hand off to main thread with pre-sorted batches
                 self._safe_after(
                     0,
                     lambda: self._preset_load_done(
-                        panel, [], 0, 0, slicer_names, errors
+                        panel,
+                        filament_batch,
+                        skipped_process,
+                        resolved_count,
+                        slicer_names,
+                        errors,
                     ),
                 )
-                return
-
-            resolved_count = self._index_and_resolve_presets(panel, all_new)
-            restore_profile_state(all_new)
-            filament_batch, skipped_process = self._batch_presets_by_type(all_new)
-
-            # Hand off to main thread with pre-sorted batches
-            self._safe_after(
-                0,
-                lambda: self._preset_load_done(
-                    panel,
-                    filament_batch,
-                    skipped_process,
-                    resolved_count,
-                    slicer_names,
-                    errors,
-                ),
-            )
+            except Exception as e:
+                logger.error("Preset loading failed: %s", e, exc_info=True)
+                self._safe_after(
+                    0,
+                    lambda: self._preset_load_done(
+                        panel, [], 0, 0, slicer_names, [f"Internal error: {e}"]
+                    ),
+                )
 
         threading.Thread(target=_bg_scan, daemon=True).start()
 
@@ -719,7 +730,14 @@ class App(tk.Tk):
                     if origin:
                         p.origin = origin
                 all_new.extend(profiles)
-            except (OSError, json.JSONDecodeError, ValueError, zipfile.BadZipFile) as e:
+            except (
+                OSError,
+                json.JSONDecodeError,
+                ValueError,
+                zipfile.BadZipFile,
+                BundleDetectedError,
+                UnsupportedFormatError,
+            ) as e:
                 errors.append(f"{os.path.basename(fp)}: {e}")
                 logger.debug(f"Failed to load preset {fp}", exc_info=True)
 
@@ -742,14 +760,15 @@ class App(tk.Tk):
             0,
             lambda: panel._update_overlay_text("Indexing and resolving inheritance..."),
         )
-        self.preset_index.add_profiles(all_new)
-        resolved_count = 0
-        for profile in all_new:
-            if profile.inherits:
-                self.preset_index.resolve(profile)
-                if profile.resolved_data:
-                    resolved_count += 1
-        return resolved_count
+        with self._preset_lock:
+            self.preset_index.add_profiles(all_new)
+            resolved_count = 0
+            for profile in all_new:
+                if profile.inherits:
+                    self.preset_index.resolve(profile)
+                    if profile.resolved_data:
+                        resolved_count += 1
+            return resolved_count
 
     def _batch_presets_by_type(
         self, all_new: list[Profile]
@@ -826,18 +845,26 @@ class App(tk.Tk):
                         profile.profile_type,
                     )
                 all_new.extend(profiles)
-            except (OSError, json.JSONDecodeError, ValueError, zipfile.BadZipFile) as e:
+            except (
+                OSError,
+                json.JSONDecodeError,
+                ValueError,
+                zipfile.BadZipFile,
+                BundleDetectedError,
+                UnsupportedFormatError,
+            ) as e:
                 msg = f"{os.path.basename(path)}: {e}"
                 errors.append(msg)
                 logger.warning(msg, exc_info=True)
 
         # Add to index for cross-referencing, then resolve inheritance
-        self.preset_index.add_profiles(all_new)
-        for profile in all_new:
-            if profile.inherits:
-                self.preset_index.resolve(profile)
-                if profile.resolved_data:
-                    resolved_count += 1
+        with self._preset_lock:
+            self.preset_index.add_profiles(all_new)
+            for profile in all_new:
+                if profile.inherits:
+                    self.preset_index.resolve(profile)
+                    if profile.resolved_data:
+                        resolved_count += 1
 
         # Restore persisted state (changelogs, modified flags)
         restore_profile_state(all_new)
@@ -849,9 +876,13 @@ class App(tk.Tk):
             self.filament_panel.add_profiles(filament_batch)
 
         if errors:
+            error_list = errors[:20]
+            if len(errors) > 20:
+                error_list.append(f"... and {len(errors) - 20} more")
             messagebox.showwarning(
                 "Some Files Failed",
-                f"Loaded {loaded_f} profiles. Errors:\n\n" + "\n".join(errors),
+                f"Loaded {loaded_f} profiles. {len(errors)} error(s):\n\n"
+                + "\n".join(error_list),
             )
 
         total = len(self.filament_panel.profiles)
@@ -891,7 +922,10 @@ class App(tk.Tk):
 
         panel._refresh_list()
         panel._on_select()
-        status = f"Made {len(selected)} profile(s) universal."
+        if dlg.result == "universal":
+            status = f"Made {len(selected)} profile(s) universal."
+        else:
+            status = f"Retargeted {len(selected)} profile(s) to: {', '.join(dlg.result) if isinstance(dlg.result, list) else dlg.result}."
         if saved_back:
             status += " Saved to slicer — restart to see changes."
         status += " Check print speed and acceleration settings for your printer."
@@ -1086,13 +1120,14 @@ class App(tk.Tk):
         panel.profiles.append(new_profile)
         panel._refresh_list()
 
-        # Select the new profile (it's the last in the list)
-        new_idx = len(panel.profiles) - 1
-        iid = str(new_idx)
-        if panel.tree.exists(iid):
-            panel.tree.selection_set(iid)
-            panel.tree.see(iid)
-            panel._on_select()
+        # Find the new profile's iid by matching the object
+        for iid in panel.tree.get_children():
+            idx = int(iid)
+            if idx < len(panel.profiles) and panel.profiles[idx] is new_profile:
+                panel.tree.selection_set(iid)
+                panel.tree.see(iid)
+                panel._on_select()
+                break
 
         messagebox.showinfo("Profile Converted", "\n".join(lines), parent=self)
         self._update_status(f"Converted to {short}: {new_profile.name}")
@@ -1578,7 +1613,14 @@ class App(tk.Tk):
             new_data["name"] = result["name"]
 
             # Remove identity keys
-            for k in ("setting_id", "updated_time", "user_id", "instantiation"):
+            for k in (
+                "setting_id",
+                "updated_time",
+                "user_id",
+                "instantiation",
+                "profile_id",
+                "filament_id",
+            ):
                 new_data.pop(k, None)
 
             new_profile = Profile(
@@ -1673,8 +1715,36 @@ def _set_macos_app_name() -> None:
         pass
 
 
+def _acquire_instance_lock() -> "socket.socket | None":
+    """Return a bound socket acting as an instance lock, or None if already running."""
+    import socket as _socket
+
+    sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 0)
+    try:
+        sock.bind(("127.0.0.1", 47391))
+        return sock
+    except OSError:
+        sock.close()
+        return None
+
+
 def run() -> None:
     """Launch the application with top-level error handling."""
+    lock = _acquire_instance_lock()
+    if lock is None:
+        import tkinter as _tk
+        import tkinter.messagebox as _mb
+
+        _root = _tk.Tk()
+        _root.withdraw()
+        _mb.showwarning(
+            "Already Running",
+            "ProfileToolkit is already open.\nCheck your taskbar or dock.",
+        )
+        _root.destroy()
+        return
+
     _set_macos_app_name()
     logging.basicConfig(
         level=logging.INFO,
@@ -1689,6 +1759,9 @@ def run() -> None:
     except (tk.TclError, RuntimeError):
         logger.critical("Unhandled exception during startup", exc_info=True)
         raise
+    finally:
+        if lock is not None:
+            lock.close()
 
 
 if __name__ == "__main__":

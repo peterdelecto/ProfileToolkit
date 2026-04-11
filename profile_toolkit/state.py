@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import tempfile
 from typing import TYPE_CHECKING
 
 from .constants import _PLATFORM
@@ -98,8 +99,19 @@ def save_profile_state(profile: Profile) -> None:
     }
     try:
         os.makedirs(os.path.dirname(state_path), exist_ok=True)
-        with open(state_path, "w", encoding="utf-8") as f:
-            json.dump(state, f, indent=2, ensure_ascii=False)
+        tmp_fd, tmp_path = tempfile.mkstemp(
+            dir=os.path.dirname(state_path), suffix=".tmp"
+        )
+        try:
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                json.dump(state, f, indent=2, ensure_ascii=False)
+            os.replace(tmp_path, state_path)
+        except (OSError, TypeError):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
     except OSError as exc:
         logger.warning("Could not save state for profile '%s': %s", profile.name, exc)
     except TypeError as exc:
@@ -123,7 +135,7 @@ def restore_profile_state(profiles: list[Profile]) -> None:
             with open(state_path, "r", encoding="utf-8") as f:
                 state = json.load(f)
         except (json.JSONDecodeError, OSError) as e:
-            logger.debug("Couldn't restore state for '%s': %s", profile.name, e)
+            logger.warning("Couldn't restore state for '%s': %s", profile.name, e)
             continue
         if state.get("source_path") != profile.source_path:
             continue

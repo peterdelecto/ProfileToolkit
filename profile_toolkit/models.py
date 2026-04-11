@@ -336,13 +336,16 @@ class Profile:
         if len(entry) < 4 or entry[3] is None:
             return False
         snapshot = entry[3]
-        # Restore snapshotted fields
-        for k, v in snapshot.items():
-            if k == "_modified":
-                self.modified = v
-            else:
-                self.data[k] = deepcopy(v)
-        # Remove this entry and everything after it
+        if "_full_data" in snapshot:
+            self.data = deepcopy(snapshot["_full_data"])
+            self.modified = snapshot.get("_modified", False)
+        else:
+            # Legacy per-key restore for inline rename snapshots etc.
+            for k, v in snapshot.items():
+                if k == "_modified":
+                    self.modified = v
+                else:
+                    self.data[k] = deepcopy(v)
         self.changelog = self.changelog[:changelog_index]
         return True
 
@@ -607,16 +610,8 @@ class Profile:
         for every printer. This matches known-working user profiles.
         """
         self._flatten_into_data()
-        # Snapshot the fields we're about to modify so the change can be undone
-        snapshot = {}
-        for k in (
-            "compatible_printers",
-            "compatible_printers_condition",
-            "printer_settings_id",
-        ):
-            if k in self.data:
-                snapshot[k] = deepcopy(self.data[k])
-        snapshot["_modified"] = self.modified
+        # Snapshot full data so restore can undo flattening + modifications
+        snapshot = {"_full_data": deepcopy(self.data), "_modified": self.modified}
 
         old_printers = self.data.get("compatible_printers", [])
         old_psid = self.data.get("printer_settings_id", "")
@@ -638,16 +633,14 @@ class Profile:
 
     def retarget(self, printers: list) -> None:
         """Retarget profile to a different set of printers."""
+        if not printers:
+            return
+        printers = [str(p).strip() for p in printers if p and str(p).strip()]
+        if not printers:
+            return
         self._flatten_into_data()
-        snapshot = {}
-        for k in (
-            "compatible_printers",
-            "compatible_printers_condition",
-            "printer_settings_id",
-        ):
-            if k in self.data:
-                snapshot[k] = deepcopy(self.data[k])
-        snapshot["_modified"] = self.modified
+        # Snapshot full data so restore can undo flattening + modifications
+        snapshot = {"_full_data": deepcopy(self.data), "_modified": self.modified}
 
         old_printers = self.data.get("compatible_printers", [])
         self.data["compatible_printers"] = printers
@@ -1029,7 +1022,15 @@ class ProfileEngine:
 
                 if name.endswith(".json"):
                     try:
-                        raw = zf.read(name)
+                        with zf.open(name) as entry_f:
+                            raw = entry_f.read(_MAX_ENTRY_SIZE + 1)
+                            if len(raw) > _MAX_ENTRY_SIZE:
+                                logger.warning(
+                                    "Skipping oversized entry: %s (%d bytes)",
+                                    name,
+                                    len(raw),
+                                )
+                                continue
                         text = _decode_json_bytes(raw)
                         if text is None:
                             errors.append(f"{name}: could not decode")
@@ -1054,7 +1055,15 @@ class ProfileEngine:
                     name.endswith(ext) for ext in (".config", ".xml", ".ini")
                 ):
                     try:
-                        raw = zf.read(name)
+                        with zf.open(name) as entry_f:
+                            raw = entry_f.read(_MAX_ENTRY_SIZE + 1)
+                            if len(raw) > _MAX_ENTRY_SIZE:
+                                logger.warning(
+                                    "Skipping oversized entry: %s (%d bytes)",
+                                    name,
+                                    len(raw),
+                                )
+                                continue
                         text = _decode_json_bytes(raw)
                         if text is None:
                             errors.append(f"{name}: could not decode")
@@ -1070,7 +1079,15 @@ class ProfileEngine:
 
                 if name.startswith("Metadata/") and name.endswith(".txt"):
                     try:
-                        raw = zf.read(name)
+                        with zf.open(name) as entry_f:
+                            raw = entry_f.read(_MAX_ENTRY_SIZE + 1)
+                            if len(raw) > _MAX_ENTRY_SIZE:
+                                logger.warning(
+                                    "Skipping oversized entry: %s (%d bytes)",
+                                    name,
+                                    len(raw),
+                                )
+                                continue
                         text = _decode_json_bytes(raw)
                         if text is None:
                             errors.append(f"{name}: could not decode")
@@ -1163,8 +1180,16 @@ class ProfileEngine:
     @staticmethod
     def _parse_config_xml(content: str, source_path: str) -> list:
         """Parse XML-format config content. Raises ET.ParseError if not valid XML."""
+        if len(content) > 10_000_000:  # 10 MB limit for XML metadata
+            logger.warning("XML content too large, skipping: %d bytes", len(content))
+            return []
         profiles = []
-        root = ET.fromstring(content)
+        parser = ET.XMLParser()
+        parser.entity = {}  # Disable entity expansion
+        try:
+            root = ET.fromstring(content, parser=parser)
+        except ET.ParseError:
+            return []
         for elem in root.iter():
             tag_lower = elem.tag.lower().split("}")[-1]
 
@@ -1308,8 +1333,16 @@ class ProfileEngine:
     @staticmethod
     def load_ini(path: str, type_hint: str = None) -> list:
         """Load a PrusaSlicer-style .ini profile (flat key=value, one profile per file)."""
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            content = f.read()
+        raw_bytes = open(path, "rb").read()
+        content = None
+        for enc in ("utf-8", "utf-8-sig", "latin-1"):
+            try:
+                content = raw_bytes.decode(enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        if content is None:
+            content = raw_bytes.decode("utf-8", errors="replace")
         data = {}
         for line in content.splitlines():
             line = line.strip()
@@ -1392,11 +1425,8 @@ class ProfileEngine:
                         raw = kv.group(2).strip()
                         if raw == "nil":
                             continue
-                        if (
-                            raw.endswith("%")
-                            and raw[:-1].replace(".", "").replace("-", "").isdigit()
-                        ):
-                            raw = raw[:-1]
+                        # Preserve % suffix — PrusaSlicer uses it for relative values
+                        # (e.g. fill_density = 20% vs 20)
                         val = ProfileEngine._parse_config_value(raw)
                         target = (
                             current_bucket

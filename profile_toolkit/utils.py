@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 def detect_material(profile_or_data: dict | object) -> str:
     """Normalize material from a Profile or raw data dict (e.g. 'PLA', 'PETG-CF', 'General')."""
-    data = getattr(profile_or_data, 'data', profile_or_data)
+    data = getattr(profile_or_data, "data", profile_or_data)
     if not data:
         return "General"
     ft = data.get("filament_type", "")
@@ -32,11 +32,26 @@ def detect_material(profile_or_data: dict | object) -> str:
         name = data.get("name", "")
         if isinstance(name, str):
             name_upper = name.upper()
-            for mat in ("PLA-CF", "PETG-CF", "PA-CF", "PA6-GF", "PA12-CF",
-                        "PLA", "PETG", "ABS", "ASA", "TPU", "PA", "PC"):
+            for mat in (
+                "PLA-CF",
+                "PETG-CF",
+                "PA-CF",
+                "PA6-GF",
+                "PA12-CF",
+                "PLA",
+                "PETG",
+                "ABS",
+                "ASA",
+                "TPU",
+                "PC",
+            ):
                 if mat in name_upper:
                     ft = mat
                     break
+            else:
+                # PA needs word boundary to avoid matching IMPACT, SPACING, etc.
+                if re.search(r"\bPA\b", name_upper):
+                    ft = "PA"
     # Normalize CF variants
     if "CF" in ft or "GF" in ft:
         if "PLA" in ft:
@@ -49,7 +64,7 @@ def detect_material(profile_or_data: dict | object) -> str:
     for mat in ("PLA", "PETG", "ABS", "ASA", "TPU", "PC"):
         if mat in ft:
             return mat
-    if "PA" in ft or "NYLON" in ft:
+    if re.search(r"\bPA\b", ft) or "NYLON" in ft:
         return "PA"
     return "General"
 
@@ -92,7 +107,9 @@ def get_recommendation_info(key: str) -> str | None:
     return rec.get("info") if rec else None
 
 
-def check_value_range(key: str, value: float | list | None, material: str = "General") -> str | None:
+def check_value_range(
+    key: str, value: float | list | None, material: str = "General"
+) -> str | None:
     """Returns 'low', 'high', 'ok', or None. For lists, checks first element."""
     if isinstance(value, list):
         value = value[0] if value else None
@@ -118,19 +135,19 @@ def check_value_range(key: str, value: float | list | None, material: str = "Gen
 def humanize_enum_value(raw_value: str) -> str:
     """Turn 'monotonicline' into 'Monotonic Line', 'even_odd' into 'Even Odd', etc."""
     raw = str(raw_value)
-    raw = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', raw)   # camelCase split
-    raw = re.sub(r'(?<=[a-z])(?=\d)', ' ', raw)
-    raw = re.sub(r'(?<=\d)(?=[a-z])', ' ', raw)
-    raw = raw.replace('_', ' ').replace('-', ' ')
-    parts = re.split(r'(\([^)]*\))', raw)
+    raw = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", raw)  # camelCase split
+    raw = re.sub(r"(?<=[a-z])(?=\d)", " ", raw)
+    raw = re.sub(r"(?<=\d)(?=[a-z])", " ", raw)
+    raw = raw.replace("_", " ").replace("-", " ")
+    parts = re.split(r"(\([^)]*\))", raw)
     result = []
     for part in parts:
-        if part.startswith('('):
+        if part.startswith("("):
             inner = part[1:-1].strip().capitalize()
             result.append(f"({inner})")
         else:
-            result.append(' '.join(w.capitalize() for w in part.split()))
-    return ' '.join(result).strip()
+            result.append(" ".join(w.capitalize() for w in part.split()))
+    return " ".join(result).strip()
 
 
 def get_enum_human_label(key: str, raw_value: str | None) -> str:
@@ -176,7 +193,7 @@ def bind_scroll(widget: tk.Widget, canvas: tk.Canvas) -> None:
 
 def lighten_color(hex_color: str, amount: int = COLOR_LIGHTEN_AMOUNT) -> str:
     """Bump each RGB channel by `amount`. Returns original if not 6-digit hex."""
-    h = hex_color.lstrip('#')
+    h = hex_color.lstrip("#")
     if len(h) != 6:
         return hex_color
     r = min(255, int(h[0:2], 16) + amount)
@@ -188,16 +205,42 @@ def lighten_color(hex_color: str, amount: int = COLOR_LIGHTEN_AMOUNT) -> str:
 def guess_material(name: str) -> str:
     """Detect material type from profile name."""
     n = name.upper()
-    for mat in ("PLA-CF", "PETG", "PLA", "ABS", "ASA", "TPU", "PC", "PA", "PVA", "HIPS", "PPS", "PVDF"):
+    for mat in (
+        "PLA-CF",
+        "PETG",
+        "PLA",
+        "ABS",
+        "ASA",
+        "TPU",
+        "PC",
+        "PVA",
+        "HIPS",
+        "PPS",
+        "PVDF",
+    ):
         if mat in n:
             return mat.replace("-CF", " CF")  # normalize compound names
+    # PA needs word boundary check to avoid matching IMPACT, SPACING, etc.
+    if re.search(r"\bPA\b", n):
+        return "PA"
     return ""
 
 
 def guess_brand(name: str) -> str:
     """Detect brand from profile name."""
-    for brand in ("Polymaker", "eSUN", "Hatchbox", "Sunlu", "Prusament",
-                   "Bambu", "Overture", "3DJake", "Coex", "addnorth", "OVERTURE"):
+    for brand in (
+        "Polymaker",
+        "eSUN",
+        "Hatchbox",
+        "Sunlu",
+        "Prusament",
+        "Bambu",
+        "Overture",
+        "3DJake",
+        "Coex",
+        "addnorth",
+        "OVERTURE",
+    ):
         if brand.lower() in name.lower():
             return brand
     return ""
@@ -255,7 +298,7 @@ def parse_printer_nozzle(raw: str) -> tuple[str, str]:
     # Strip leading "@BBL ", "BBL ", "@"
     for prefix in ("@BBL ", "BBL ", "@"):
         if s.upper().startswith(prefix):
-            s = s[len(prefix):]
+            s = s[len(prefix) :]
             break
 
     # Check if string starts with nozzle spec (HF0.6, 0.8, 0.8 nozzle MINI)
@@ -267,7 +310,9 @@ def parse_printer_nozzle(raw: str) -> tuple[str, str]:
             key = remainder.upper()
             printer = _MACHINE_ALIASES.get(key, remainder)
         else:
-            printer = "Planetary Gear HF" if m_nozzle_first.group(1) else "Planetary Gear"
+            printer = (
+                "Planetary Gear HF" if m_nozzle_first.group(1) else "Planetary Gear"
+            )
         return printer, nozzle
 
     # Extract trailing nozzle: "0.4 nozzle", "HF0.6", "0.6"
