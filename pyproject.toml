@@ -1,6 +1,6 @@
 [project]
 name = "profile-toolkit"
-version = "2.2.0"
+version = "0.1.0"
 description = "Cross-platform GUI for unlocking/converting 3D printer slicer profiles"
 requires-python = ">=3.10"
 license = {text = "MIT"}

@@ -5,7 +5,7 @@ import platform
 # --- Application & Platform Identification ---
 
 APP_NAME = "ProfileToolkit"
-APP_VERSION = "2.2.0"
+APP_VERSION = "0.1.0"
 
 # Cross-platform UI font family
 _PLATFORM = platform.system()
