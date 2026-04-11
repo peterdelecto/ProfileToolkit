@@ -259,21 +259,21 @@ class App(tk.Tk):
         mod_key = "Cmd" if _PLATFORM == "Darwin" else "Ctrl"
 
         file_menu.add_command(
-            label="Import Local Profiles...",
+            label="Import from Files\u2026",
             command=self._on_import_json,
             accelerator=f"{mod_key}+O",
         )
         file_menu.add_command(
-            label="Extract Profile from 3MF...",
+            label="Import from 3MF Project\u2026",
             command=self._on_extract_3mf,
             accelerator=f"{mod_key}+Shift+O",
         )
         file_menu.add_command(
-            label="Import Manufacturer and Community Profiles...",
+            label="Import from Online Sources\u2026",
             command=self._on_import_online,
         )
         file_menu.add_command(
-            label="Load Profiles from Slicers",
+            label="Import from Installed Slicers",
             command=self._on_load_presets,
         )
         file_menu.add_separator()
@@ -403,7 +403,7 @@ class App(tk.Tk):
 
         make_btn(
             toolbar,
-            "Import Profiles",
+            "Import from Files",
             self._on_import_json,
             bg=theme.bg4,
             fg=theme.btn_fg,
@@ -425,7 +425,7 @@ class App(tk.Tk):
 
         make_btn(
             toolbar,
-            "Load Profiles from Slicers",
+            "Import from Slicers",
             self._on_load_presets,
             bg=theme.bg4,
             fg=theme.btn_fg,
@@ -537,7 +537,7 @@ class App(tk.Tk):
 
     def _on_import_json(self) -> None:
         paths = filedialog.askopenfilenames(
-            title="Import Profiles",
+            title="Import from Files",
             filetypes=[
                 ("JSON profiles", "*.json"),
                 ("Prusa profiles", "*.ini"),
@@ -586,7 +586,7 @@ class App(tk.Tk):
 
     def _on_extract_3mf(self) -> None:
         paths = filedialog.askopenfilenames(
-            title="Extract Profiles from 3MF",
+            title="Import from 3MF Project",
             filetypes=[("3MF projects", "*.3mf"), ("All", "*.*")],
         )
         if not paths:

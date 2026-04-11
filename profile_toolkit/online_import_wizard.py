@@ -24,7 +24,7 @@ from .models import Profile, SlicerDetector
 from .providers import ALL_PROVIDERS, PROVIDER_CATEGORIES, OnlineProfileEntry
 from .providers_pkg.base import OnlineProvider
 from .state import load_online_prefs, save_online_prefs
-from .utils import bind_scroll, lighten_color
+from .utils import bind_scroll, lighten_color, user_error
 from .widgets import ScrollableFrame, make_btn
 
 logger = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ class OnlineImportWizard(tk.Toplevel):
         super().__init__(parent)
         self.theme = theme
         self._load_callback = load_callback
-        self.title("Import Manufacturer and Community Profiles")
+        self.title("Import from Online Sources")
         self.configure(bg=theme.bg)
         self.geometry(f"{self._WIDTH}x{self._HEIGHT}")
         self.minsize(750, 450)
@@ -508,7 +508,7 @@ class OnlineImportWizard(tk.Toplevel):
         self._brand_combo.pack(side="left", padx=(0, 12))
 
         tk.Label(
-            filter_row, text="Machine:", bg=theme.bg, fg=theme.fg2, font=(UI_FONT, 12)
+            filter_row, text="Printer:", bg=theme.bg, fg=theme.fg2, font=(UI_FONT, 12)
         ).pack(side="left", padx=(0, 4))
         self._machine_combo = ttk.Combobox(
             filter_row,
@@ -671,7 +671,11 @@ class OnlineImportWizard(tk.Toplevel):
                 if self._fetch_done.is_set() or self._cancelled:
                     return
                 self._fetch_done.set()
-                msg = f"{type(ex).__name__}: {ex}"
+                msg = user_error(
+                    "Could not connect to this source.",
+                    ex,
+                    "Check your internet connection.",
+                )
                 self.after(0, lambda m=msg: self._on_catalog_error(m))
 
         threading.Thread(target=_fetch, daemon=True).start()
@@ -889,7 +893,11 @@ class OnlineImportWizard(tk.Toplevel):
                 if self._fetch_done.is_set() or self._cancelled:
                     return
                 self._fetch_done.set()
-                msg = f"{type(ex).__name__}: {ex}"
+                msg = user_error(
+                    "Could not connect to this source.",
+                    ex,
+                    "Check your internet connection.",
+                )
                 self.after(0, lambda m=msg: self._on_catalog_error(m))
 
         threading.Thread(target=_fetch, daemon=True).start()
@@ -1182,13 +1190,8 @@ class OnlineImportWizard(tk.Toplevel):
         final = [e for e in self._catalog if e.selected]
         self._selected_entries = final
 
-        tk.Label(
-            frame,
-            text="Confirm & Import",
-            bg=theme.bg,
-            fg=theme.fg,
-            font=(UI_FONT, 14, "bold"),
-        ).pack(anchor="w", padx=20, pady=(16, 6))
+        # Spacer (heading removed — step title shown in wizard header)
+        tk.Frame(frame, bg=theme.bg, height=16).pack()
 
         # Summary
         summary_frame = tk.Frame(
@@ -1238,7 +1241,7 @@ class OnlineImportWizard(tk.Toplevel):
         # "Load into app" is always on (not a checkbox — just a note)
         tk.Label(
             target_frame,
-            text="\u2713  Load into app (always)",
+            text="\u2713  Loaded into ProfileToolkit",
             bg=theme.bg,
             fg=theme.fg2,
             font=(UI_FONT, 12),
@@ -1385,7 +1388,7 @@ class OnlineImportWizard(tk.Toplevel):
             if not selected:
                 messagebox.showwarning(
                     "No Profiles",
-                    "Check at least one profile to continue.",
+                    "Select at least one profile to continue.",
                     parent=self,
                 )
                 return
@@ -1451,7 +1454,10 @@ class OnlineImportWizard(tk.Toplevel):
         target_dirs = self._collect_target_dirs()
 
         provider = self._selected_provider
-        self._import_status.set(f"Downloading {len(entries)} profile(s)...")
+        n = len(entries)
+        self._import_status.set(
+            f"Downloading {n} {'profile' if n == 1 else 'profiles'}..."
+        )
         self._btn_next.configure(text="  Importing...  ")
         self._importing = True
 
@@ -1555,7 +1561,7 @@ class OnlineImportWizard(tk.Toplevel):
                     err_msg += f"\n... and {len(errors) - 5} more"
                 messagebox.showwarning(
                     "Some Downloads Failed",
-                    f"Downloaded {len(results)}, failed {len(errors)}:\n\n{err_msg}",
+                    f"Downloaded {len(results)}, failed {len(errors)}:\n\n{err_msg}\n\nYou can retry by running the import again.",
                     parent=self,
                 )
 
@@ -1568,15 +1574,14 @@ class OnlineImportWizard(tk.Toplevel):
                     logger.exception("Failed to load imported profiles")
                     messagebox.showwarning(
                         "Load Error",
-                        "Profiles were downloaded but some failed to load into the app.\n"
-                        "Check the log for details.",
+                        "Some profiles could not be loaded \u2014 they may be in an unsupported format.",
                         parent=self,
                     )
                 if saved_dirs and load_ok:
                     dir_list = "\n".join(saved_dirs)
                     messagebox.showinfo(
                         "Import Complete",
-                        f"Imported {len(results)} profile(s) to "
+                        f"Imported {len(results)} {'profile' if len(results) == 1 else 'profiles'} to "
                         f"{len(saved_dirs)} location{'s' if len(saved_dirs) != 1 else ''}:\n"
                         f"{dir_list}",
                         parent=self,

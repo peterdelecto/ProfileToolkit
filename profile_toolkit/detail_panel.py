@@ -167,7 +167,7 @@ class ProfileDetailPanel(tk.Frame):
 
             json_lbl = tk.Label(
                 actions,
-                text="Import JSON",
+                text="From Files",
                 bg=theme.bg2,
                 fg=theme.accent,
                 font=(UI_FONT, 13, "bold"),
@@ -184,7 +184,7 @@ class ProfileDetailPanel(tk.Frame):
             ).pack(side="left", padx=(0, 6))
             mf_lbl = tk.Label(
                 actions,
-                text="Import from 3MF",
+                text="From 3MF Project",
                 bg=theme.bg2,
                 fg=theme.accent,
                 font=(UI_FONT, 13, "bold"),
@@ -199,7 +199,7 @@ class ProfileDetailPanel(tk.Frame):
             ).pack(side="left", padx=(0, 6))
             lp_lbl = tk.Label(
                 actions,
-                text="Load Installed Profiles",
+                text="From Installed Slicers",
                 bg=theme.bg2,
                 fg=theme.accent,
                 font=(UI_FONT, 13, "bold"),
