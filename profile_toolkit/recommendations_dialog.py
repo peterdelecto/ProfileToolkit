@@ -41,20 +41,24 @@ class RecommendationsDialog:
         theme: Theme,
         profile: Profile,
         all_profiles: Optional[list[Profile]] = None,
+        refresh_callback: Optional[Callable[[Profile], None]] = None,
     ) -> None:
         self.theme = theme
         self.profile = profile
         self.all_profiles = all_profiles or []
+        self._refresh_callback = refresh_callback
         self._apply_vars = {}  # key -> BooleanVar for checkboxes
 
         display_data = profile.resolved_data if profile.resolved_data else profile.data
         material = detect_material(display_data)
 
         self.dlg = dlg = tk.Toplevel(parent)
-        dlg.title(f"Smart Recommendations — {profile.name}")
+        dlg.title(f"Recommended Values — {profile.name}")
         dlg.configure(bg=theme.bg)
         dlg.resizable(True, True)
         dlg.transient(parent.winfo_toplevel())
+        dlg.grab_set()
+        dlg.protocol("WM_DELETE_WINDOW", lambda: (dlg.grab_release(), dlg.destroy()))
         dlg.geometry(
             "720x560+%d+%d" % (parent.winfo_rootx() + 40, parent.winfo_rooty() + 40)
         )
@@ -65,12 +69,12 @@ class RecommendationsDialog:
         hdr.pack(fill="x", padx=16, pady=(12, 4))
         tk.Label(
             hdr,
-            text="\u2699 Smart Recommendations",
+            text="\u2699 Recommended Values",
             bg=theme.bg,
             fg=theme.fg,
             font=(UI_FONT, 16, "bold"),
         ).pack(side="left")
-        mat_text = material if material != "General" else "Unknown material"
+        mat_text = material if material != "General" else "Material not detected"
         tk.Label(
             hdr,
             text=f"  \u00b7  {mat_text}  \u00b7  {profile.name}",
@@ -100,8 +104,12 @@ class RecommendationsDialog:
                     status = check_value_range(json_key, val, material)
                     if status in ("low", "high"):
                         rec = get_recommendation(json_key, material)
+                        inherited = bool(
+                            getattr(self.profile, "inherited_keys", None)
+                            and json_key in self.profile.inherited_keys
+                        )
                         out_of_range.append(
-                            (json_key, ui_label, val, status, rec, tab_name)
+                            (json_key, ui_label, val, status, rec, tab_name, inherited)
                         )
 
         if out_of_range:
@@ -117,7 +125,7 @@ class RecommendationsDialog:
 
             cb = tk.Checkbutton(
                 sel_frame,
-                text="Select all",
+                text="Select All",
                 variable=self._select_all_var,
                 command=_toggle_all,
                 bg=theme.bg,
@@ -157,14 +165,22 @@ class RecommendationsDialog:
                     anchor="w",
                 ).grid(row=0, column=ci, sticky="w", padx=4, pady=4)
 
-            for json_key, ui_label, val, status, rec, tab_name in out_of_range:
+            for (
+                json_key,
+                ui_label,
+                val,
+                status,
+                rec,
+                tab_name,
+                inherited,
+            ) in out_of_range:
                 self._render_rec_row(
-                    sf.body, json_key, ui_label, val, status, rec, tab_name
+                    sf.body, json_key, ui_label, val, status, rec, tab_name, inherited
                 )
         else:
             tk.Label(
                 sf.body,
-                text="\u2705  All parameters are within recommended ranges!",
+                text="All parameters are within recommended ranges.",
                 bg=theme.bg,
                 fg=theme.accent,
                 font=(UI_FONT, 14, "bold"),
@@ -178,7 +194,7 @@ class RecommendationsDialog:
         if out_of_range:
             apply_btn = make_btn(
                 btn_frame,
-                "Apply Typical Values",
+                "Apply Recommended Values",
                 self._apply_typical,
                 bg=theme.accent2,
                 fg=theme.accent_fg,
@@ -207,6 +223,7 @@ class RecommendationsDialog:
         status: str,
         rec: Optional[dict],
         tab_name: str,
+        inherited: bool = False,
     ) -> None:
         theme = self.theme
         row = tk.Frame(parent, bg=theme.param_bg)
@@ -247,14 +264,25 @@ class RecommendationsDialog:
             disp_val = (
                 unique[0] if len(unique) == 1 else ", ".join(str(v) for v in value)
             )
+        val_frame = tk.Frame(row, bg=theme.param_bg)
+        val_frame.grid(row=0, column=2, sticky="w", padx=4)
         tk.Label(
-            row,
+            val_frame,
             text=str(disp_val),
             bg=theme.param_bg,
             fg=theme.fg2,
             font=(UI_FONT, 12),
             anchor="w",
-        ).grid(row=0, column=2, sticky="w", padx=4)
+        ).pack(side="left")
+        if inherited:
+            tk.Label(
+                val_frame,
+                text="(from parent)",
+                bg=theme.param_bg,
+                fg=theme.fg3 if hasattr(theme, "fg3") else theme.fg2,
+                font=(UI_FONT, 10),
+                anchor="w",
+            ).pack(side="left", padx=(4, 0))
 
         # Indicator arrow
         arrow = "\u25bc" if status == "low" else "\u25b2"
@@ -329,6 +357,8 @@ class RecommendationsDialog:
             if new_val != original:
                 old_val = original
                 self.profile.data[key] = new_val
+                if getattr(self.profile, "resolved_data", None) is not None:
+                    self.profile.resolved_data[key] = new_val
                 self.profile.modified = True
                 self.profile.log_change(
                     "Recommendation applied",
@@ -349,6 +379,12 @@ class RecommendationsDialog:
         self.dlg.destroy()
 
     def _refresh_detail(self) -> None:
+        if self._refresh_callback:
+            try:
+                self._refresh_callback(self.profile)
+            except Exception as exc:
+                logger.debug("Refresh callback failed: %s", exc)
+            return
         try:
             parent = self.dlg.master
             while parent:
@@ -365,8 +401,16 @@ class RecommendationsDialog:
 
     def _compute_stats(self, data: dict, material: str) -> dict[str, int]:
         total = ok = low = high = 0
-        for key, val in data.items():
-            status = check_value_range(key, val, material)
+        # Only check keys defined in FILAMENT_LAYOUT (not metadata/identity keys)
+        layout_keys = set()
+        for sections in FILAMENT_LAYOUT.values():
+            for params in sections.values():
+                for entry in params:
+                    layout_keys.add(entry[0])
+        for key in layout_keys:
+            if key not in data:
+                continue
+            status = check_value_range(key, data[key], material)
             if status is not None:
                 total += 1
                 if status == "ok":

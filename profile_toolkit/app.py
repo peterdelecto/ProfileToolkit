@@ -47,7 +47,7 @@ from .state import (
 from .panels import ProfileDetailPanel, ProfileListPanel, ComparePanel
 from .dialogs import OnlineImportWizard, PrusaBundleWizard
 from .utils import user_error
-from .widgets import ExportDialog, UnlockDialog, make_btn
+from .widgets import ExportDialog, Tooltip, UnlockDialog, make_btn
 
 logger = logging.getLogger(__name__)
 
@@ -434,7 +434,7 @@ class App(tk.Tk):
             pady=5,
         ).pack(side="left", padx=(0, 4))
 
-        make_btn(
+        export_btn = make_btn(
             toolbar,
             "Export",
             self._on_export,
@@ -445,7 +445,9 @@ class App(tk.Tk):
             pady=5,
             image=self._icon("save"),
             compound="left",
-        ).pack(side="right", padx=(0, 4))
+        )
+        export_btn.pack(side="right", padx=(0, 4))
+        Tooltip(export_btn, "Export selected profiles to file or slicer", theme=theme)
 
         # Content area: stacked frames (manual tab switching)
         self._content_area = tk.Frame(self, bg=theme.bg)
@@ -1231,7 +1233,10 @@ class App(tk.Tk):
             panel.detail._commit_edits()
         selected = panel.get_selected_profiles()
         if not selected:
-            messagebox.showinfo("No Selection", "Select profiles to export.")
+            messagebox.showinfo(
+                "No Selection",
+                "Select profiles to export. Click one or more profiles in the list, then try again.",
+            )
             return
 
         if not self._warn_missing_conversion_keys(selected):
@@ -1316,7 +1321,10 @@ class App(tk.Tk):
             panel.detail._commit_edits()
         selected = panel.get_selected_profiles()
         if not selected:
-            messagebox.showinfo("No Selection", "Select profiles to export.")
+            messagebox.showinfo(
+                "No Selection",
+                "Select profiles to export. Click one or more profiles in the list, then try again.",
+            )
             return
 
         base = SlicerDetector.get_export_dir(path)
@@ -1348,7 +1356,10 @@ class App(tk.Tk):
             panel.detail._commit_edits()
         selected = panel.get_selected_profiles()
         if not selected:
-            messagebox.showinfo("No Selection", "Select profiles to export.")
+            messagebox.showinfo(
+                "No Selection",
+                "Select profiles to export. Click one or more profiles in the list, then try again.",
+            )
             return
 
         if not self._warn_missing_conversion_keys(selected):
@@ -1719,9 +1730,9 @@ class App(tk.Tk):
         messagebox.showinfo(
             "About",
             f"{APP_NAME} v{APP_VERSION}\n\n"
-            "Removes printer-compatibility restrictions\n"
-            "from 3D printer slicer profiles.\n\n"
-            "Supports BambuStudio, OrcaSlicer, PrusaSlicer.",
+            "Make any filament profile work with any printer.\n"
+            "Convert profiles between BambuStudio, OrcaSlicer,\n"
+            "and PrusaSlicer.",
         )
 
     def _update_status(self, msg: str = "") -> None:
@@ -1740,7 +1751,8 @@ class App(tk.Tk):
             selected = panel.get_selected_profiles()
             if not selected:
                 messagebox.showinfo(
-                    "No Selection", "Select a profile to show its folder."
+                    "No Selection",
+                    "Select a profile to show its folder. Click a profile in the list, then try again.",
                 )
                 return
 

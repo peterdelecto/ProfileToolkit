@@ -1129,7 +1129,7 @@ class ProfileDetailPanel(tk.Frame):
         )
         lbl.pack(side="left", fill="x", expand=True)
         if discovered:
-            _Tooltip(lbl, f"JSON key: {key}", theme=theme)
+            _Tooltip(lbl, f"{label}\nJSON key: {key}", theme=theme)
 
         display = self._format_value(value, key=key)
         if display == "nil":

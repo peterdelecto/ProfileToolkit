@@ -953,7 +953,8 @@ class ProfileListPanel(tk.Frame):
         menu.add_separator()
         menu.add_command(label="Remove from list", command=self.app._on_remove)
         menu.add_command(
-            label="Delete from disk...", command=lambda: self._on_delete_from_disk()
+            label="\u26a0 Delete from disk...",
+            command=lambda: self._on_delete_from_disk(),
         )
 
         menu.tk_popup(event.x_root, event.y_root)
@@ -967,7 +968,9 @@ class ProfileListPanel(tk.Frame):
         selected = self.get_selected_profiles()
         if not selected:
             messagebox.showinfo(
-                "No Selection", "Select profiles to rename.", parent=self
+                "No Selection",
+                "Select profiles to rename. Click one or more profiles in the list, then try again.",
+                parent=self,
             )
             return
         BatchRenameDialog(self, self.theme, selected, self._refresh_list)

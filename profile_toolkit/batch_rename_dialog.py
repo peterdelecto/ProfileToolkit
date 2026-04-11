@@ -103,18 +103,18 @@ class BatchRenameDialog(tk.Toplevel):
             font=(UI_FONT, 12, "bold"),
             padx=8,
             pady=4,
-            cursor="hand2",
+            cursor="pointinghand",
         )
         self._simple_tab_btn.pack(side="left", padx=(0, 2))
         self._pattern_tab_btn = tk.Label(
             tab_frame,
-            text="  Pattern Builder  ",
+            text="  Name from Template  ",
             bg=theme.bg4,
             fg=theme.fg3,
             font=(UI_FONT, 12),
             padx=8,
             pady=4,
-            cursor="hand2",
+            cursor="pointinghand",
         )
         self._pattern_tab_btn.pack(side="left")
 
