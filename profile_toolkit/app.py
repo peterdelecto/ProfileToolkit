@@ -1149,32 +1149,16 @@ class App(tk.Tk):
                     key_labels[entry[0]] = entry[1]
 
         # Build summary dialog
-        lines = [f'Created "{new_profile.name}" from "{profile.name}".']
-
+        lines = [f"Converted '{profile.name}' to {short} format."]
         if dropped:
-            lines.append(
-                f"\n\u2716 {len(dropped)} parameter(s) dropped (no {short} equivalent):"
-            )
-            for k in dropped:
-                label = key_labels.get(k, k.replace("_", " ").capitalize())
-                lines.append(f"    \u2022 {label}")
-
+            lines.append(f"{len(dropped)} parameters dropped (no equivalent).")
         if missing:
             lines.append(
-                f"\n\u24d8 {len(missing)} parameter(s) expected by {short} — needs review:"
+                f"{len(missing)} parameters need review \u2014 highlighted in the detail view."
             )
-            for k in missing:
-                label = key_labels.get(k, k.replace("_", " ").capitalize())
-                lines.append(f"    \u2022 {label}")
-            lines.append("\nThese are highlighted in the detail view.")
-            lines.append("Click the teal \u24d8 buttons to fill with typical values.")
-
-        # Check for gcode fields
         gcode_keys = [k for k in new_profile.data if "gcode" in k.lower()]
         if gcode_keys:
-            lines.append(
-                "\n\u26a0 G-code fields may contain slicer-specific placeholders — review manually."
-            )
+            lines.append("G-code fields may need manual review.")
 
         # Add to list and select the new profile
         panel = self._active_panel()
