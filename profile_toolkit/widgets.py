@@ -914,7 +914,7 @@ class UnlockDialog(tk.Toplevel):
         note_text_frame.pack(side="left", fill="x", expand=True, padx=(0, 10), pady=8)
         tk.Label(
             note_text_frame,
-            text="Does not adjust machine-specific parameters.",
+            text="Only changes printer compatibility — your print settings stay the same.",
             bg=theme.bg3,
             fg=theme.fg,
             font=(UI_FONT, 12, "bold"),
@@ -1044,7 +1044,7 @@ class UnlockDialog(tk.Toplevel):
 
         tk.Label(
             self.printer_frame,
-            text="Add unlisted printer (comma-separated):",
+            text="Type a printer name:",
             bg=theme.bg,
             fg=theme.fg2,
             font=(UI_FONT, 12),
@@ -1059,6 +1059,12 @@ class UnlockDialog(tk.Toplevel):
             font=(UI_FONT, 12),
         )
         self.custom.pack(fill="x", pady=(0, 8))
+        # Placeholder text
+        self._placeholder = "e.g. Bambu Lab P1S, Prusa MK4"
+        self.custom.insert(0, self._placeholder)
+        self.custom.configure(fg=theme.fg3)
+        self.custom.bind("<FocusIn>", self._clear_placeholder)
+        self.custom.bind("<FocusOut>", self._restore_placeholder)
         self._set_state("disabled")
 
         button_frame = tk.Frame(self, bg=theme.bg)
@@ -1099,6 +1105,17 @@ class UnlockDialog(tk.Toplevel):
     def _mode_changed(self) -> None:
         self._set_state("normal" if self.mode.get() == "retarget" else "disabled")
 
+    def _clear_placeholder(self, _event: object = None) -> None:
+        if self.custom.get() == self._placeholder:
+            self.custom.delete(0, "end")
+            self.custom.configure(fg=self.theme.fg)
+
+    def _restore_placeholder(self, _event: object = None) -> None:
+        if not self.custom.get().strip():
+            self.custom.delete(0, "end")
+            self.custom.insert(0, self._placeholder)
+            self.custom.configure(fg=self.theme.fg3)
+
     def _set_state(self, state: str) -> None:
         for w in self.check_frame.winfo_children():
             if isinstance(w, tk.Checkbutton):
@@ -1115,7 +1132,7 @@ class UnlockDialog(tk.Toplevel):
         else:
             sel = [n for n, v in self.pvars.items() if v.get()]
             c = self.custom.get().strip()
-            if c:
+            if c and c != self._placeholder:
                 custom_entries = [p.strip() for p in c.split(",") if p.strip()]
                 # Validate custom entries have reasonable format
                 bad = [e for e in custom_entries if len(e) < 2 or len(e) > 100]
