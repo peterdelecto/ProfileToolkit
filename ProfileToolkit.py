@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Profile Toolkit v2.2.0
+Profile Toolkit
 ===============================
 Cross-platform GUI for unlocking/converting 3D printer slicer profiles.
 Mirrors BambuStudio's exact UI layout. OrcaSlicer-inspired teal theme.

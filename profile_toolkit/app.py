@@ -15,7 +15,7 @@ from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 from typing import Optional
 
-import platform
+import zipfile
 
 from .constants import (
     APP_NAME,
@@ -26,17 +26,24 @@ from .constants import (
     _TREE_ROW_HEIGHT,
     SETTING_ID_PREFIX,
     UI_FONT,
+    COMPARE_DEBUG_LOG,
+    MAX_COLLISION_ATTEMPTS,
 )
 from .theme import Theme
-from .models import Profile, ProfileEngine, PresetIndex, SlicerDetector
+from .models import (
+    Profile,
+    ProfileEngine,
+    PresetIndex,
+    SlicerDetector,
+    BundleDetectedError,
+    UnsupportedFormatError,
+)
 from .state import save_profile_state, restore_profile_state, reapply_unlock_state
 from .panels import ProfileDetailPanel, ProfileListPanel, ComparePanel
-from .dialogs import CompareDialog, OnlineImportWizard
+from .dialogs import CompareDialog, OnlineImportWizard, PrusaBundleWizard
 from .widgets import ExportDialog, UnlockDialog, make_btn
 
 logger = logging.getLogger(__name__)
-
-MAX_COLLISION_ATTEMPTS = 100
 
 
 class App(tk.Tk):
@@ -47,6 +54,22 @@ class App(tk.Tk):
     ProfileListPanel children (process and filament tabs).
     """
 
+    @staticmethod
+    def _extract_user_id(source_path: str) -> str:
+        """Extract user_id from directory structure: .../user/<user_id>/...
+
+        Args:
+            source_path: File or directory path containing "user/<user_id>/"
+
+        Returns:
+            The user_id if found, otherwise empty string
+        """
+        parts = os.path.normpath(source_path).split(os.sep)
+        for i, part in enumerate(parts):
+            if part == "user" and i + 1 < len(parts):
+                return parts[i + 1]
+        return ""
+
     def __init__(self) -> None:
         """Initialize the application window and UI."""
         super().__init__()
@@ -55,9 +78,10 @@ class App(tk.Tk):
         # Load PNG icon sets — keep references on self to prevent GC of PhotoImages
         try:
             from resources.icons.icon_loader import IconSet
+
             self.icons = IconSet(size=24)
             self.icons_sm = IconSet(size=16)
-        except Exception:
+        except (ImportError, FileNotFoundError, OSError):
             logger.warning("Failed to load icon sets; icons will be unavailable")
             self.icons = None
             self.icons_sm = None
@@ -81,7 +105,9 @@ class App(tk.Tk):
         self._configure_styles()
         self._build_menu()
         self._build_ui()
-        self._update_status("Ready. Import JSON profiles, extract from 3MF, or load system presets to get started.")
+        self._update_status(
+            "Ready. Import profiles (JSON, INI), extract from 3MF, or load system presets to get started."
+        )
 
         # Set minimum size after UI is built and mapped
         self.update_idletasks()
@@ -100,28 +126,27 @@ class App(tk.Tk):
           Linux:   Uses iconphoto() with multiple PNG sizes (freedesktop.org)
         """
         import sys
-        try:
-            if getattr(sys, 'frozen', False):
-                base = Path(sys._MEIPASS) / 'resources'
-            else:
-                base = Path(__file__).parent.parent / 'resources'
 
-            system = platform.system()
+        try:
+            if getattr(sys, "frozen", False):
+                base = Path(sys._MEIPASS) / "resources"
+            else:
+                base = Path(__file__).parent.parent / "resources"
 
             # Windows: .ico gives best results for taskbar + title bar
-            if system == "Windows":
-                ico_path = base / 'AppIcon.ico'
+            if _PLATFORM == "Windows":
+                ico_path = base / "AppIcon.ico"
                 if ico_path.exists():
                     self.iconbitmap(str(ico_path))
                     return
 
             # All platforms: iconphoto with multiple PNG sizes (largest-first)
             icon_files = [
-                base / 'AppIcon-512.png',
-                base / 'AppIcon.png',       # 256px
-                base / 'AppIcon-128.png',
-                base / 'AppIcon-64.png',
-                base / 'AppIcon-32.png',
+                base / "AppIcon-512.png",
+                base / "AppIcon.png",  # 256px
+                base / "AppIcon-128.png",
+                base / "AppIcon-64.png",
+                base / "AppIcon-32.png",
             ]
             images = []
             for f in icon_files:
@@ -131,7 +156,7 @@ class App(tk.Tk):
             if images:
                 self.iconphoto(True, *images)
                 self._app_icon_images = images  # prevent GC
-        except Exception:
+        except (tk.TclError, OSError):
             logger.debug("Could not set window icon", exc_info=True)
 
     def _configure_styles(self) -> None:
@@ -189,9 +214,9 @@ class App(tk.Tk):
         )
         style.map(
             "Param.TCombobox",
-            fieldbackground=[("readonly", theme.bg3)],
-            foreground=[("readonly", theme.fg)],
-            background=[("readonly", theme.bg3)],
+            fieldbackground=[("disabled", theme.bg3), ("readonly", theme.bg3)],
+            foreground=[("disabled", theme.fg3), ("readonly", theme.fg)],
+            background=[("disabled", theme.bg3), ("readonly", theme.bg3)],
         )
 
         # Combobox dropdown list
@@ -229,7 +254,7 @@ class App(tk.Tk):
         mod_key = "Cmd" if _PLATFORM == "Darwin" else "Ctrl"
 
         file_menu.add_command(
-            label="Import JSON...",
+            label="Import Local Profiles...",
             command=self._on_import_json,
             accelerator=f"{mod_key}+O",
         )
@@ -239,12 +264,12 @@ class App(tk.Tk):
             accelerator=f"{mod_key}+Shift+O",
         )
         file_menu.add_command(
-            label="Load System Presets from Slicers",
-            command=self._on_load_presets,
+            label="Import Manufacturer and Community Profiles...",
+            command=self._on_import_online,
         )
         file_menu.add_command(
-            label="Import from Online Sources...",
-            command=self._on_import_online,
+            label="Load Profiles from Slicers",
+            command=self._on_load_presets,
         )
         file_menu.add_separator()
         file_menu.add_command(
@@ -337,42 +362,39 @@ class App(tk.Tk):
         toolbar_row.pack(fill="x", side="top")
 
         # Tab labels on the left
-        self._tab_var = tk.StringVar(value="process")
+        self._tab_var = tk.StringVar(value="filament")
         tab_frame = tk.Frame(toolbar_row, bg=theme.bg)
         tab_frame.pack(side="left", padx=(4, 0), pady=(4, 0))
 
-        _process_icon = self._icon("process")
         _filament_icon = self._icon("filament")
 
         _compare_icon = self._icon("compare")
-
-        self._process_tab = make_btn(
-            tab_frame,
-            "  Process  ",
-            lambda: self._switch_tab("process"),
-            bg=theme.icon_active_bg_strong,
-            fg=theme.fg,
-            font=(UI_FONT, 13, "bold"),
-            padx=14,
-            pady=6,
-            image=_process_icon,
-            compound="left",
-        )
-        self._process_tab.pack(side="left", padx=(0, 2))
 
         self._filament_tab = make_btn(
             tab_frame,
             "  Filament  ",
             lambda: self._switch_tab("filament"),
-            bg=theme.bg4,
-            fg=theme.btn_fg,
-            font=(UI_FONT, 13),
+            bg=theme.icon_active_bg_strong,
+            fg=theme.fg,
+            font=(UI_FONT, 13, "bold"),
             padx=14,
             pady=6,
             image=_filament_icon,
             compound="left",
         )
-        self._filament_tab.pack(side="left")
+        self._filament_tab.pack(side="left", padx=(0, 10))
+
+        self._convert_tab = make_btn(
+            tab_frame,
+            "  Convert  ",
+            lambda: self._on_convert_tab(),
+            bg=theme.bg4,
+            fg=theme.btn_fg,
+            font=(UI_FONT, 13),
+            padx=14,
+            pady=6,
+        )
+        self._convert_tab.pack(side="left", padx=(0, 10))
 
         self._compare_tab = make_btn(
             tab_frame,
@@ -386,7 +408,7 @@ class App(tk.Tk):
             image=_compare_icon,
             compound="left",
         )
-        self._compare_tab.pack(side="left", padx=(2, 0))
+        self._compare_tab.pack(side="left")
 
         # Toolbar buttons on the right
         toolbar = tk.Frame(toolbar_row, bg=theme.bg)
@@ -397,7 +419,7 @@ class App(tk.Tk):
 
         make_btn(
             toolbar,
-            "Import JSON",
+            "Import Profiles",
             self._on_import_json,
             bg=theme.bg4,
             fg=theme.btn_fg,
@@ -419,7 +441,7 @@ class App(tk.Tk):
 
         make_btn(
             toolbar,
-            "Load System Presets",
+            "Load Profiles from Slicers",
             self._on_load_presets,
             bg=theme.bg4,
             fg=theme.btn_fg,
@@ -445,21 +467,21 @@ class App(tk.Tk):
         self._content_area = tk.Frame(self, bg=theme.bg)
         self._content_area.pack(fill="both", expand=True)
 
-        self.process_panel = ProfileListPanel(self._content_area, theme, "process", self)
-        self.filament_panel = ProfileListPanel(self._content_area, theme, "filament", self)
+        self.filament_panel = ProfileListPanel(
+            self._content_area, theme, "filament", self
+        )
         self.compare_panel = ComparePanel(self._content_area, theme, self)
 
-        # Show process panel by default
-        self.process_panel.pack(fill="both", expand=True)
-        self._current_tab = "process"
+        # Show filament panel by default
+        self.filament_panel.pack(fill="both", expand=True)
+        self._current_tab = "filament"
 
         # Global Ctrl+Z / Cmd+Z dispatcher — routes to the correct panel
         self._bind_global_undo()
 
     def _bind_global_undo(self) -> None:
         """Bind a single global Ctrl+Z handler that dispatches to the visible panel."""
-        import platform
-        mod_key = "Command" if platform.system() == "Darwin" else "Control"
+        mod_key = "Command" if _PLATFORM == "Darwin" else "Control"
         self.winfo_toplevel().bind(f"<{mod_key}-z>", self._global_undo)
 
     def _global_undo(self, event: Optional[tk.Event] = None) -> str:
@@ -473,32 +495,51 @@ class App(tk.Tk):
         return "break"
 
     def _switch_tab(self, tab_name: str) -> None:
-        """Switch to the named tab (process, filament, or compare)."""
+        """Switch to the named tab (filament, compare, or convert).
+
+        Filament and Convert share the same filament_panel — only the right
+        pane is swapped via set_mode().  Avoid pack_forget/pack when switching
+        between them to preserve sash position and tree state.
+        """
         theme = self.theme
         if tab_name == self._current_tab:
             return
 
-        # Hide all panels
-        self.process_panel.pack_forget()
-        self.filament_panel.pack_forget()
-        self.compare_panel.pack_forget()
+        prev = self._current_tab
+        # Determine if the underlying panel changes
+        prev_uses_filament = prev in ("filament", "convert")
+        next_uses_filament = tab_name in ("filament", "convert")
 
-        # Reset all tabs to inactive
+        # Unbind compare shortcuts when leaving compare tab
+        if prev == "compare":
+            self.compare_panel._unbind_shortcuts()
+
+        # Only pack_forget panels that are actually being replaced
+        if not (prev_uses_filament and next_uses_filament):
+            self.filament_panel.pack_forget()
+            self.compare_panel.pack_forget()
+
+        # Reset all tab button styles to inactive
         inactive = dict(bg=theme.bg4, fg=theme.btn_fg, font=(UI_FONT, 13))
-        active = dict(bg=theme.icon_active_bg_strong, fg=theme.fg, font=(UI_FONT, 13, "bold"))
+        active = dict(
+            bg=theme.icon_active_bg_strong, fg=theme.fg, font=(UI_FONT, 13, "bold")
+        )
 
-        self._process_tab.configure(**inactive)
         self._filament_tab.configure(**inactive)
-        if tab_name != "compare":
-            self._compare_tab.configure(**inactive)
+        self._convert_tab.configure(**inactive)
+        self._compare_tab.configure(**inactive)
 
         # Show the selected panel and activate its tab
-        if tab_name == "process":
-            self.process_panel.pack(fill="both", expand=True)
-            self._process_tab.configure(**active)
-        elif tab_name == "filament":
-            self.filament_panel.pack(fill="both", expand=True)
+        if tab_name == "filament":
+            self.filament_panel.set_mode("detail")
+            if not prev_uses_filament:
+                self.filament_panel.pack(fill="both", expand=True)
             self._filament_tab.configure(**active)
+        elif tab_name == "convert":
+            self.filament_panel.set_mode("convert")
+            if not prev_uses_filament:
+                self.filament_panel.pack(fill="both", expand=True)
+            self._convert_tab.configure(**active)
         elif tab_name == "compare":
             self.compare_panel.pack(fill="both", expand=True)
             self._compare_tab.configure(**active)
@@ -506,35 +547,57 @@ class App(tk.Tk):
         self._current_tab = tab_name
 
     def _active_panel(self) -> ProfileListPanel:
-        if self._current_tab == "compare":
-            # When on compare tab, return whichever panel the compared profiles came from
-            pa = self.compare_panel._profile_a
-            if pa and pa.profile_type == "filament":
-                return self.filament_panel
-            return self.process_panel
-        return (
-            self.process_panel
-            if self._current_tab == "process"
-            else self.filament_panel
-        )
-
-    def _update_compare_tab_state(self) -> None:
-        """No-op — Compare tab is always enabled. Kept for backward compat."""
-        pass
+        return self.filament_panel
 
     # ── File Operations ──
 
     def _on_import_json(self) -> None:
         paths = filedialog.askopenfilenames(
-            title="Import JSON Profiles",
+            title="Import Profiles",
             filetypes=[
                 ("JSON profiles", "*.json"),
+                ("Prusa profiles", "*.ini"),
                 ("BBS filament bundles", "*.bbsflmt"),
                 ("All", "*.*"),
             ],
         )
-        if paths:
-            self._load_files([(p, None, "") for p in paths])
+        if not paths:
+            return
+        # Check for Prusa factory bundles and route through wizard
+        bundle_paths = [p for p in paths if ProfileEngine.is_prusa_bundle(p)]
+        normal_paths = [p for p in paths if p not in bundle_paths]
+
+        if normal_paths:
+            self._load_files([(p, None, "") for p in normal_paths])
+
+        for bp in bundle_paths:
+            wizard = PrusaBundleWizard(self, self.theme, bp)
+            if wizard.result:
+                cached = wizard.parsed_sections
+                self._update_status("Resolving Prusa profiles...")
+                self.update_idletasks()
+                profiles = ProfileEngine.load_bundle_filaments(
+                    bp, wizard.result, sections=cached
+                )
+                if profiles:
+                    self.preset_index.add_profiles(profiles)
+                    resolved = 0
+                    for i, p in enumerate(profiles):
+                        if p.inherits:
+                            self.preset_index.resolve(p)
+                            if p.resolved_data:
+                                resolved += 1
+                        if i % 20 == 0:
+                            self._update_status(
+                                f"Resolving Prusa profiles... ({i}/{len(profiles)})"
+                            )
+                            self.update_idletasks()
+                    self.filament_panel.add_profiles(profiles)
+                    total = len(self.filament_panel.profiles)
+                    status = f"Imported {len(profiles)} Prusa factory profiles. {total} total."
+                    if resolved:
+                        status += f" Resolved {resolved} inherited."
+                    self._update_status(status)
 
     def _on_extract_3mf(self) -> None:
         paths = filedialog.askopenfilenames(
@@ -544,6 +607,14 @@ class App(tk.Tk):
         if paths:
             self._load_files([(p, None, "") for p in paths])
 
+    def _safe_after(self, ms: int, func: callable) -> None:
+        """Schedule a callback only if the window still exists (prevents TclError on exit)."""
+        try:
+            if self.winfo_exists():
+                self.after(ms, func)
+        except tk.TclError:
+            pass
+
     def _on_import_online(self) -> None:
         OnlineImportWizard(self, self.theme, self._load_files)
 
@@ -552,104 +623,139 @@ class App(tk.Tk):
             messagebox.showinfo(
                 "No Slicers Found",
                 "No slicer installations were detected.\n\n"
-                "Supported: BambuStudio, OrcaSlicer, PrusaSlicer",
+                "Supported: BambuStudio, OrcaSlicer, Prusa",
             )
             return
 
         # Prevent multiple concurrent loads
-        if getattr(self, '_preset_loading', False):
+        if getattr(self, "_preset_loading", False):
             return
         self._preset_loading = True
 
         panel = self._active_panel()
         slicer_names = ", ".join(self.detected_slicers.keys())
-        panel._show_overlay(f"Scanning {slicer_names}...", show_spinner=True,
-                            show_progress=True)
+        panel._show_overlay(
+            f"Scanning {slicer_names}...", show_spinner=True, show_progress=True
+        )
 
         def _bg_scan() -> None:
             """Background thread: discover, load, index, and resolve preset files."""
-            # Phase 1: Discover preset files
-            pairs = []
-            for name, path in self.detected_slicers.items():
-                self.after(0, lambda n=name: panel._update_overlay_text(f"Scanning {n}..."))
-                presets = SlicerDetector.find_user_presets(path)
-                for ptype, files in presets.items():
-                    for fp in files:
-                        pairs.append((fp, ptype, name))
-
+            pairs = self._resolve_preset_paths(panel, slicer_names)
             if not pairs:
-                self.after(0, lambda: self._preset_load_done(panel, [], [], 0, slicer_names))
+                self._safe_after(
+                    0, lambda: self._preset_load_done(panel, [], 0, 0, slicer_names)
+                )
                 return
 
-            total = len(pairs)
-            self.after(0, lambda: panel._update_overlay_text(f"Loading {total} presets..."))
-            self.after(0, lambda: panel._update_overlay_progress(0, total))
-
-            # Phase 2: Load profile files (background thread)
-            all_new = []
-            errors = []
-            for i, item in enumerate(pairs):
-                fp, type_hint, origin = item
-                try:
-                    profiles = ProfileEngine.load_file(fp, type_hint)
-                    for p in profiles:
-                        if origin:
-                            p.origin = origin
-                    all_new.extend(profiles)
-                except Exception as e:
-                    errors.append(f"{os.path.basename(fp)}: {e}")
-                    logger.debug(f"Failed to load preset {fp}", exc_info=True)
-
-                if (i + 1) % 10 == 0 or (i + 1) == total:
-                    c = i + 1
-                    self.after(
-                        0,
-                        lambda c=c, t=total: (
-                            panel._update_overlay_text(f"Loading presets ({c}/{t})..."),
-                            panel._update_overlay_progress(c, t),
-                        ),
-                    )
-
+            all_new, errors = self._load_preset_files(panel, pairs)
             if not all_new:
-                self.after(0, lambda: self._preset_load_done(panel, [], errors, 0, slicer_names))
+                self._safe_after(
+                    0,
+                    lambda: self._preset_load_done(
+                        panel, [], 0, 0, slicer_names, errors
+                    ),
+                )
                 return
 
-            # Phase 3: Index and resolve inheritance (background thread)
-            self.after(0, lambda: panel._update_overlay_text("Indexing and resolving inheritance..."))
-            self.preset_index.add_profiles(all_new)
-            resolved_count = 0
-            for profile in all_new:
-                if profile.inherits:
-                    self.preset_index.resolve(profile)
-                    if profile.resolved_data:
-                        resolved_count += 1
-
-            # Phase 4: Restore persisted state (background thread)
-            self.after(0, lambda: panel._update_overlay_text("Restoring saved state..."))
+            resolved_count = self._index_and_resolve_presets(panel, all_new)
             restore_profile_state(all_new)
-
-            # Phase 5: Sort into process/filament batches (background thread)
-            process_batch = []
-            filament_batch = []
-            for profile in all_new:
-                if profile.profile_type == "filament":
-                    filament_batch.append(profile)
-                else:
-                    process_batch.append(profile)
+            filament_batch, skipped_process = self._batch_presets_by_type(all_new)
 
             # Hand off to main thread with pre-sorted batches
-            self.after(0, lambda: self._preset_load_done(
-                panel, process_batch, filament_batch, resolved_count,
-                slicer_names, errors,
-            ))
+            self._safe_after(
+                0,
+                lambda: self._preset_load_done(
+                    panel,
+                    filament_batch,
+                    skipped_process,
+                    resolved_count,
+                    slicer_names,
+                    errors,
+                ),
+            )
 
         threading.Thread(target=_bg_scan, daemon=True).start()
+
+    def _resolve_preset_paths(
+        self, panel: ProfileListPanel, slicer_names: str
+    ) -> list[tuple[str, str, str]]:
+        """Phase 1: Discover preset file paths from all detected slicers."""
+        pairs = []
+        for name, path in self.detected_slicers.items():
+            self._safe_after(
+                0, lambda n=name: panel._update_overlay_text(f"Scanning {n}...")
+            )
+            presets = SlicerDetector.find_user_presets(path)
+            for ptype, files in presets.items():
+                for fp in files:
+                    pairs.append((fp, ptype, name))
+        return pairs
+
+    def _load_preset_files(
+        self, panel: ProfileListPanel, pairs: list[tuple[str, str, str]]
+    ) -> tuple[list[Profile], list[str]]:
+        """Phase 2: Load profile files from discovered paths."""
+        total = len(pairs)
+        self._safe_after(
+            0, lambda: panel._update_overlay_text(f"Loading {total} presets...")
+        )
+        self._safe_after(0, lambda: panel._update_overlay_progress(0, total))
+
+        all_new = []
+        errors = []
+        for i, item in enumerate(pairs):
+            fp, type_hint, origin = item
+            try:
+                profiles = ProfileEngine.load_file(fp, type_hint)
+                for p in profiles:
+                    if origin:
+                        p.origin = origin
+                all_new.extend(profiles)
+            except (OSError, json.JSONDecodeError, ValueError, zipfile.BadZipFile) as e:
+                errors.append(f"{os.path.basename(fp)}: {e}")
+                logger.debug(f"Failed to load preset {fp}", exc_info=True)
+
+            if (i + 1) % 10 == 0 or (i + 1) == total:
+                c = i + 1
+                self._safe_after(
+                    0,
+                    lambda c=c, t=total: (
+                        panel._update_overlay_text(f"Loading presets ({c}/{t})..."),
+                        panel._update_overlay_progress(c, t),
+                    ),
+                )
+        return all_new, errors
+
+    def _index_and_resolve_presets(
+        self, panel: ProfileListPanel, all_new: list[Profile]
+    ) -> int:
+        """Phase 3: Index and resolve inheritance for loaded profiles."""
+        self._safe_after(
+            0,
+            lambda: panel._update_overlay_text("Indexing and resolving inheritance..."),
+        )
+        self.preset_index.add_profiles(all_new)
+        resolved_count = 0
+        for profile in all_new:
+            if profile.inherits:
+                self.preset_index.resolve(profile)
+                if profile.resolved_data:
+                    resolved_count += 1
+        return resolved_count
+
+    def _batch_presets_by_type(
+        self, all_new: list[Profile]
+    ) -> tuple[list[Profile], int]:
+        """Filter to filament profiles only."""
+        filament_batch = [p for p in all_new if p.profile_type == "filament"]
+        skipped = len(all_new) - len(filament_batch)
+        return filament_batch, skipped
 
     def _preset_load_done(
         self,
         panel: ProfileListPanel,
-        process_batch: list[Profile],
         filament_batch: list[Profile],
+        skipped: int,
         resolved_count: int,
         slicer_names: str,
         errors: Optional[list[str]] = None,
@@ -663,28 +769,23 @@ class App(tk.Tk):
         self._preset_loading = False
         panel._hide_overlay()
 
-        loaded_p = len(process_batch)
         loaded_f = len(filament_batch)
 
-        if not loaded_p and not loaded_f:
-            self._update_status("No user presets found in detected slicers.")
+        if not loaded_f:
+            self._update_status("No filament presets found in detected slicers.")
             return
 
-        # Batch-add to panels (single _refresh_list per panel)
-        if process_batch:
-            self.process_panel.add_profiles(process_batch)
         if filament_batch:
             self.filament_panel.add_profiles(filament_batch)
 
         if errors:
             messagebox.showwarning(
                 "Some Files Failed",
-                f"Loaded {loaded_p + loaded_f} profiles. Errors:\n\n"
-                + "\n".join(errors[:20]),
+                f"Loaded {loaded_f} profiles. Errors:\n\n" + "\n".join(errors[:20]),
             )
 
-        total = len(self.process_panel.profiles) + len(self.filament_panel.profiles)
-        status = f"Loaded {loaded_p} process, {loaded_f} filament. {total} total."
+        total = len(self.filament_panel.profiles)
+        status = f"Loaded {loaded_f} filament profiles. {total} total."
         if resolved_count:
             status += f" Resolved inherited settings for {resolved_count}."
         self._update_status(status)
@@ -695,7 +796,7 @@ class App(tk.Tk):
         Args:
             path_hint_tuples: List of (path, type_hint, origin) tuples
         """
-        loaded_p, loaded_f, resolved_count = 0, 0, 0
+        loaded_f, resolved_count = 0, 0
         errors = []
         all_new = []
 
@@ -709,8 +810,15 @@ class App(tk.Tk):
                 for profile in profiles:
                     if origin:
                         profile.origin = origin
+                    logger.info(
+                        "Loaded profile '%s' from %s: %d keys, type=%s",
+                        profile.name,
+                        os.path.basename(path),
+                        len(profile.data),
+                        profile.profile_type,
+                    )
                 all_new.extend(profiles)
-            except Exception as e:
+            except (OSError, json.JSONDecodeError, ValueError, zipfile.BadZipFile) as e:
                 msg = f"{os.path.basename(path)}: {e}"
                 errors.append(msg)
                 logger.warning(msg, exc_info=True)
@@ -726,27 +834,20 @@ class App(tk.Tk):
         # Restore persisted state (changelogs, modified flags)
         restore_profile_state(all_new)
 
-        # Sort into panels
-        for profile in all_new:
-            if profile.profile_type == "process":
-                self.process_panel.add_profiles([profile])
-                loaded_p += 1
-            elif profile.profile_type == "filament":
-                self.filament_panel.add_profiles([profile])
-                loaded_f += 1
-            else:
-                self.process_panel.add_profiles([profile])
-                loaded_p += 1
+        # Filter to filament profiles
+        filament_batch = [p for p in all_new if p.profile_type == "filament"]
+        loaded_f = len(filament_batch)
+        if filament_batch:
+            self.filament_panel.add_profiles(filament_batch)
 
         if errors:
             messagebox.showwarning(
                 "Some Files Failed",
-                f"Loaded {loaded_p + loaded_f} profiles. Errors:\n\n"
-                + "\n".join(errors),
+                f"Loaded {loaded_f} profiles. Errors:\n\n" + "\n".join(errors),
             )
 
-        total = len(self.process_panel.profiles) + len(self.filament_panel.profiles)
-        status = f"Loaded {loaded_p} process, {loaded_f} filament. {total} total."
+        total = len(self.filament_panel.profiles)
+        status = f"Loaded {loaded_f} filament profiles. {total} total."
         if resolved_count:
             status += f" Resolved inherited settings for {resolved_count}."
         self._update_status(status)
@@ -765,11 +866,10 @@ class App(tk.Tk):
         if dlg.result is None:
             return
 
-        all_printers = self.preset_index.known_printers if hasattr(self, "preset_index") else None
         saved_back = 0
         for profile in selected:
             if dlg.result == "universal":
-                profile.make_universal(all_printers=all_printers)
+                profile.make_universal()
             else:
                 profile.retarget(dlg.result)
 
@@ -778,12 +878,12 @@ class App(tk.Tk):
                 try:
                     self._save_back_to_slicer(profile)
                     saved_back += 1
-                except Exception as exc:
+                except (OSError, json.JSONDecodeError) as exc:
                     logger.warning(f"Auto-save failed for {profile.name}: {exc}")
 
         panel._refresh_list()
         panel._on_select()
-        status = f"Unlocked {len(selected)} profile(s)."
+        status = f"Made {len(selected)} profile(s) universal."
         if saved_back:
             status += " Saved to slicer — restart to see changes."
         status += " Check print speed and acceleration settings for your printer."
@@ -814,42 +914,53 @@ class App(tk.Tk):
         if not fp or not os.path.isfile(fp):
             return
 
+        # Path traversal guard: ensure target is within a known slicer directory
+        norm_fp = os.path.normpath(os.path.realpath(fp))
+        if not any(
+            norm_fp.startswith(os.path.normpath(os.path.realpath(sp)))
+            for sp in self.detected_slicers.values()
+        ):
+            logger.warning("Refusing to save outside slicer directory: %s", fp)
+            return
+
         # Write the JSON
-        with open(fp, "w", encoding="utf-8") as f:
-            f.write(profile.to_json(flatten=True))
+        try:
+            with open(fp, "w", encoding="utf-8") as f:
+                f.write(profile.to_json(flatten=True))
+        except OSError as e:
+            messagebox.showerror("Save Failed", f"Could not write profile:\n{e}")
+            return
 
         info_path = os.path.splitext(fp)[0] + ".info"
         now_ts = str(int(_time.time()))
 
-        if os.path.isfile(info_path):
-            # Preserve existing metadata, just bump the timestamp
-            lines = []
-            with open(info_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    if line.startswith("updated_time"):
-                        lines.append(f"updated_time = {now_ts}\n")
-                    else:
-                        lines.append(line)
-            with open(info_path, "w", encoding="utf-8") as f:
-                f.writelines(lines)
-        else:
-            # Create a new .info file — derive fields from context
-            user_id = ""
-            parts = os.path.normpath(fp).split(os.sep)
-            for i, part in enumerate(parts):
-                if part == "user" and i + 1 < len(parts):
-                    user_id = parts[i + 1]
-                    break
+        try:
+            if os.path.isfile(info_path):
+                # Preserve existing metadata, just bump the timestamp
+                lines = []
+                with open(info_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        if line.startswith("updated_time"):
+                            lines.append(f"updated_time = {now_ts}\n")
+                        else:
+                            lines.append(line)
+                with open(info_path, "w", encoding="utf-8") as f:
+                    f.writelines(lines)
+            else:
+                # Create a new .info file — derive fields from context
+                user_id = self._extract_user_id(fp)
 
-            setting_id = SETTING_ID_PREFIX + secrets.token_hex(7)[:14]
-            base_id = "GFSU00"
+                setting_id = SETTING_ID_PREFIX + secrets.token_hex(7)[:14]
+                base_id = "GFSU00"
 
-            with open(info_path, "w", encoding="utf-8") as f:
-                f.write("sync_info = \n")
-                f.write(f"user_id = {user_id}\n")
-                f.write(f"setting_id = {setting_id}\n")
-                f.write(f"base_id = {base_id}\n")
-                f.write(f"updated_time = {now_ts}\n")
+                with open(info_path, "w", encoding="utf-8") as f:
+                    f.write("sync_info = \n")
+                    f.write(f"user_id = {user_id}\n")
+                    f.write(f"setting_id = {setting_id}\n")
+                    f.write(f"base_id = {base_id}\n")
+                    f.write(f"updated_time = {now_ts}\n")
+        except OSError as e:
+            logger.warning("Could not write .info file %s: %s", info_path, e)
 
     def _on_compare_tab(self) -> None:
         """Handle Compare Filament tab click.
@@ -863,7 +974,9 @@ class App(tk.Tk):
         logger.debug("_on_compare_tab: live selection=%d profiles", len(selected))
         if len(selected) != 2:
             selected = self._filament_selection
-            logger.debug("_on_compare_tab: fell back to cache=%d profiles", len(selected))
+            logger.debug(
+                "_on_compare_tab: fell back to cache=%d profiles", len(selected)
+            )
         if len(selected) == 2:
             self.compare_panel.load(selected[0], selected[1])
         elif not self.compare_panel.is_waiting():
@@ -884,8 +997,11 @@ class App(tk.Tk):
         selected = self.filament_panel.get_selected_profiles()
         # Cache the current filament selection for cross-tab access
         self._filament_selection = selected
-        logger.debug("_on_filament_selection_changed: %d selected, tab=%s",
-                     len(selected), self._current_tab)
+        logger.debug(
+            "_on_filament_selection_changed: %d selected, tab=%s",
+            len(selected),
+            self._current_tab,
+        )
 
         if self._current_tab == "compare":
             if len(selected) == 2:
@@ -905,7 +1021,120 @@ class App(tk.Tk):
         """Clear the comparison and show the waiting state."""
         self.compare_panel.show_waiting()
 
+    def _on_convert_tab(self) -> None:
+        """Handle Convert tab click — switches filament_panel to convert mode."""
+        if self._current_tab != "convert":
+            self._switch_tab("convert")
+
+    # ── Conversion ──
+
+    def _on_convert_profile(self, profile: "Profile", target: str) -> None:
+        """Convert a profile to a different slicer format, add as a copy, and select it."""
+        from .constants import SLICER_SHORT_LABELS, FILAMENT_LAYOUT
+
+        short = SLICER_SHORT_LABELS.get(target, target)
+        new_profile, dropped, missing = profile.convert_to(target)
+
+        # Rename copy to indicate conversion
+        new_profile.data["name"] = f"{profile.name} ({short})"
+
+        # Build JSON key → UI label lookup from layout
+        key_labels = {}
+        for tab_sections in FILAMENT_LAYOUT.values():
+            for params in tab_sections.values():
+                for entry in params:
+                    key_labels[entry[0]] = entry[1]
+
+        # Build summary dialog
+        lines = [f'Created "{new_profile.name}" from "{profile.name}".']
+
+        if dropped:
+            lines.append(
+                f"\n\u2716 {len(dropped)} parameter(s) dropped (no {short} equivalent):"
+            )
+            for k in dropped:
+                label = key_labels.get(k, k.replace("_", " ").capitalize())
+                lines.append(f"    \u2022 {label}")
+
+        if missing:
+            lines.append(
+                f"\n\u24d8 {len(missing)} parameter(s) expected by {short} — needs review:"
+            )
+            for k in missing:
+                label = key_labels.get(k, k.replace("_", " ").capitalize())
+                lines.append(f"    \u2022 {label}")
+            lines.append("\nThese are highlighted in the detail view.")
+            lines.append("Click the teal \u24d8 buttons to fill with typical values.")
+
+        # Check for gcode fields
+        gcode_keys = [k for k in new_profile.data if "gcode" in k.lower()]
+        if gcode_keys:
+            lines.append(
+                "\n\u26a0 G-code fields may contain slicer-specific placeholders — review manually."
+            )
+
+        # Add to list and select the new profile
+        panel = self._active_panel()
+        panel.profiles.append(new_profile)
+        panel._refresh_list()
+
+        # Select the new profile (it's the last in the list)
+        new_idx = len(panel.profiles) - 1
+        iid = str(new_idx)
+        if panel.tree.exists(iid):
+            panel.tree.selection_set(iid)
+            panel.tree.see(iid)
+            panel._on_select()
+
+        messagebox.showinfo("Profile Converted", "\n".join(lines), parent=self)
+        self._update_status(f"Converted to {short}: {new_profile.name}")
+
     # ── Export Operations ──
+
+    def _warn_missing_conversion_keys(self, profiles: list) -> bool:
+        """Check if any profiles have missing conversion keys. If so, warn the user.
+
+        Returns True if the user wants to proceed anyway, False to cancel.
+        """
+        from .constants import FILAMENT_LAYOUT, SLICER_SHORT_LABELS
+
+        # Collect profiles with missing keys
+        problems = []
+        for p in profiles:
+            if p._missing_conversion_keys:
+                problems.append(p)
+
+        if not problems:
+            return True
+
+        # Build key→label lookup
+        key_labels = {}
+        for tab_sections in FILAMENT_LAYOUT.values():
+            for params in tab_sections.values():
+                for entry in params:
+                    key_labels[entry[0]] = entry[1]
+
+        lines = []
+        for p in problems:
+            slicer = SLICER_SHORT_LABELS.get(p.origin, p.origin or "target slicer")
+            lines.append(
+                f'"{p.name}" is missing {len(p._missing_conversion_keys)} '
+                f"parameter(s) expected by {slicer}:"
+            )
+            for k in sorted(p._missing_conversion_keys):
+                label = key_labels.get(k, k.replace("_", " ").capitalize())
+                lines.append(f"    \u2022 {label}")
+            lines.append("")
+
+        lines.append("The exported profile may not work correctly in the slicer.")
+        lines.append("\nExport anyway?")
+
+        return messagebox.askyesno(
+            "Missing Parameters",
+            "\n".join(lines),
+            icon="warning",
+            parent=self,
+        )
 
     def _on_export(self) -> None:
         """Export selected profiles with options for flattening/organization."""
@@ -917,13 +1146,14 @@ class App(tk.Tk):
             messagebox.showinfo("No Selection", "Select profiles to export.")
             return
 
-        has_inh = any(p.inherits for p in selected)
+        if not self._warn_missing_conversion_keys(selected):
+            return
+
         dlg = ExportDialog(
             self,
             self.theme,
             len(selected),
             detected_slicers=self.detected_slicers,
-            any_has_inheritance=has_inh,
         )
         if dlg.result is None:
             return
@@ -934,31 +1164,39 @@ class App(tk.Tk):
             self._on_install_to_slicer(sname, spath)
             return
 
-        flatten = dlg.flatten
+        fmt = dlg.export_format
 
         if len(selected) == 1:
             # Single profile: save-as dialog
             profile = selected[0]
+            if fmt == "ini":
+                ext, ftype = ".ini", [("INI profile", "*.ini"), ("All", "*.*")]
+            else:
+                ext, ftype = ".json", [("JSON profile", "*.json"), ("All", "*.*")]
             fp = filedialog.asksaveasfilename(
                 title="Export Profile",
-                initialfile=profile.suggested_filename(),
-                defaultextension=".json",
-                filetypes=[("JSON profile", "*.json"), ("All", "*.*")],
+                initialfile=profile.suggested_filename(fmt=fmt),
+                defaultextension=ext,
+                filetypes=ftype,
             )
             if fp:
                 try:
+                    content = (
+                        profile.to_ini(flatten=True)
+                        if fmt == "ini"
+                        else profile.to_json(flatten=True)
+                    )
                     with open(fp, "w", encoding="utf-8") as f:
-                        f.write(profile.to_json(flatten=flatten))
-                    mode_note = " (all settings included)" if flatten else ""
-                    self._update_status(f"Exported{mode_note}: {os.path.basename(fp)}")
-                except Exception as e:
+                        f.write(content)
+                    self._update_status(f"Exported: {os.path.basename(fp)}")
+                except (OSError, json.JSONDecodeError) as e:
                     messagebox.showerror("Export Error", str(e))
                     logger.error(f"Export failed for {profile.name}: {e}")
         else:
             # Multiple profiles: choose directory
             out = filedialog.askdirectory(title="Choose Export Directory")
             if out:
-                self._do_export(selected, out, flatten=flatten)
+                self._do_export(selected, out, flatten=True, fmt=fmt)
 
     def _on_export_to_slicer(self, name: str, path: str) -> None:
         """Export selected profiles to a slicer's preset directory.
@@ -968,6 +1206,8 @@ class App(tk.Tk):
             path: Path to slicer installation
         """
         panel = self._active_panel()
+        if hasattr(panel, "detail"):
+            panel.detail._commit_edits()
         selected = panel.get_selected_profiles()
         if not selected:
             messagebox.showinfo("No Selection", "Select profiles to export.")
@@ -976,10 +1216,10 @@ class App(tk.Tk):
         base = SlicerDetector.get_export_dir(path)
         is_bambu = "BambuStudio" in name or "OrcaSlicer" in name
 
-        if messagebox.askyesno(
-            "Export", f"Export {len(selected)} to {name}?\n{base}"
-        ):
-            self._do_export(selected, base, organize=True, write_info=is_bambu)
+        if messagebox.askyesno("Export", f"Export {len(selected)} to {name}?\n{base}"):
+            self._do_export(
+                selected, base, organize=True, flatten=True, write_info=is_bambu
+            )
 
     def _on_install_to_slicer(self, slicer_name: str, slicer_path: str) -> None:
         """Export selected profiles directly into a slicer's user preset directory.
@@ -994,6 +1234,9 @@ class App(tk.Tk):
         selected = panel.get_selected_profiles()
         if not selected:
             messagebox.showinfo("No Selection", "Select profiles to export.")
+            return
+
+        if not self._warn_missing_conversion_keys(selected):
             return
 
         export_base = SlicerDetector.get_export_dir(slicer_path)
@@ -1017,20 +1260,26 @@ class App(tk.Tk):
         ):
             return
 
-        has_inh = any(p.inherits for p in selected)
         is_bambu = "BambuStudio" in slicer_name or "OrcaSlicer" in slicer_name
-        self._do_export(
+        exported, errors = self._export_profiles_batch(
             selected,
             export_base,
             organize=True,
-            flatten=has_inh,
-            quiet=True,
+            flatten=True,
             write_info=is_bambu,
         )
-        msg = (
-            f"Exported {count} {profiles_word} to {slicer_name}. "
-            f"Restart {slicer_name} to see them."
-        )
+        self._show_export_result(exported, errors, export_base, quiet=True)
+        profiles_word = "profile" if exported == 1 else "profiles"
+        if errors:
+            msg = (
+                f"Exported {exported} of {count} {profiles_word} to {slicer_name} "
+                f"({len(errors)} failed). Restart {slicer_name} to see them."
+            )
+        else:
+            msg = (
+                f"Exported {exported} {profiles_word} to {slicer_name}. "
+                f"Restart {slicer_name} to see them."
+            )
         self._update_status(msg)
         messagebox.showinfo(f"Exported to {slicer_name}", msg)
 
@@ -1042,6 +1291,7 @@ class App(tk.Tk):
         flatten: bool = False,
         quiet: bool = False,
         write_info: bool = False,
+        fmt: str = "json",
     ) -> None:
         """Export multiple profiles to a directory.
 
@@ -1053,46 +1303,82 @@ class App(tk.Tk):
             quiet: If True, suppress success messagebox
             write_info: If True, write .info metadata files (BambuStudio/OrcaSlicer)
         """
+        exported, errors = self._export_profiles_batch(
+            profiles, out_dir, organize, flatten, write_info, fmt
+        )
+        self._show_export_result(exported, errors, out_dir, quiet)
+
+    def _export_profiles_batch(
+        self,
+        profiles: list[Profile],
+        out_dir: str,
+        organize: bool,
+        flatten: bool,
+        write_info: bool,
+        fmt: str = "json",
+    ) -> tuple[int, list[str]]:
+        """Export profiles and collect success/error counts."""
         exported = 0
         errors = []
 
         for profile in profiles:
             try:
-                dest_dir = (
-                    os.path.join(out_dir, profile.profile_type)
-                    if organize and profile.profile_type != "unknown"
-                    else out_dir
+                fp = self._resolve_export_path(profile, out_dir, organize, fmt=fmt)
+                content = (
+                    profile.to_ini(flatten=flatten)
+                    if fmt == "ini"
+                    else profile.to_json(flatten=flatten)
                 )
-                os.makedirs(dest_dir, exist_ok=True)
-                fp = os.path.join(dest_dir, profile.suggested_filename())
-
-                # cap iterations to avoid infinite loop on name collisions
-                counter = 1
-                base, ext = os.path.splitext(fp)
-                while os.path.exists(fp) and counter <= MAX_COLLISION_ATTEMPTS:
-                    fp = f"{base}_{counter}{ext}"
-                    counter += 1
-
-                if counter > MAX_COLLISION_ATTEMPTS:
-                    logger.warning(
-                        f"Max collision attempts reached for {profile.name}; "
-                        f"skipping to avoid infinite loop"
-                    )
-                    errors.append(f"{profile.name}: Could not find unique filename")
-                    continue
-
                 with open(fp, "w", encoding="utf-8") as f:
-                    f.write(profile.to_json(flatten=flatten))
+                    f.write(content)
 
                 if write_info:
                     self._write_info_file(fp, out_dir, profile)
 
                 exported += 1
-            except Exception as e:
+            except (OSError, json.JSONDecodeError) as e:
                 msg = f"{profile.name}: {e}"
                 errors.append(msg)
                 logger.error(msg, exc_info=True)
 
+        return exported, errors
+
+    def _resolve_export_path(
+        self, profile: Profile, out_dir: str, organize: bool, fmt: str = "json"
+    ) -> str:
+        """Resolve destination directory and filename with collision handling."""
+        dest_dir = (
+            os.path.join(out_dir, profile.profile_type)
+            if organize and profile.profile_type != "unknown"
+            else out_dir
+        )
+        os.makedirs(dest_dir, exist_ok=True)
+        fp = os.path.join(dest_dir, profile.suggested_filename(fmt=fmt))
+
+        # cap iterations to avoid infinite loop on name collisions
+        counter = 1
+        base, ext = os.path.splitext(fp)
+        while os.path.exists(fp) and counter <= MAX_COLLISION_ATTEMPTS:
+            fp = f"{base}_{counter}{ext}"
+            counter += 1
+
+        if counter > MAX_COLLISION_ATTEMPTS:
+            logger.warning(
+                f"Max collision attempts reached for {profile.name}; "
+                f"skipping to avoid infinite loop"
+            )
+            raise OSError(f"Could not find unique filename for {profile.name}")
+
+        return fp
+
+    def _show_export_result(
+        self,
+        exported: int,
+        errors: list[str],
+        out_dir: str,
+        quiet: bool,
+    ) -> None:
+        """Display export results and update status."""
         if errors:
             messagebox.showwarning(
                 "Partial Export",
@@ -1105,8 +1391,7 @@ class App(tk.Tk):
             )
 
         if not quiet:
-            mode_note = " (all settings included)" if flatten else ""
-            self._update_status(f"Exported {exported} profile(s){mode_note}.")
+            self._update_status(f"Exported {exported} profile(s).")
 
     @staticmethod
     def _write_info_file(
@@ -1136,12 +1421,7 @@ class App(tk.Tk):
         info_path = os.path.splitext(json_path)[0] + ".info"
 
         # Derive user_id from directory structure: .../user/<user_id>/filament/
-        user_id = ""
-        parts = os.path.normpath(export_base).split(os.sep)
-        for i, part in enumerate(parts):
-            if part == "user" and i + 1 < len(parts):
-                user_id = parts[i + 1]
-                break
+        user_id = App._extract_user_id(export_base)
 
         # base_id: try to read from source .info if known
         base_id = ""
@@ -1154,7 +1434,7 @@ class App(tk.Tk):
                             if line.startswith("base_id"):
                                 base_id = line.split("=", 1)[1].strip()
                                 break
-                except Exception:
+                except (OSError, KeyError, ValueError):
                     pass
 
         if not base_id:
@@ -1164,12 +1444,30 @@ class App(tk.Tk):
 
         setting_id = SETTING_ID_PREFIX + secrets.token_hex(7)[:14]
 
-        with open(info_path, "w", encoding="utf-8") as f:
-            f.write("sync_info = \n")
-            f.write(f"user_id = {user_id}\n")
-            f.write(f"setting_id = {setting_id}\n")
-            f.write(f"base_id = {base_id}\n")
-            f.write(f"updated_time = {updated_time}\n")
+        try:
+            with open(info_path, "w", encoding="utf-8") as f:
+                f.write("sync_info = \n")
+                f.write(f"user_id = {user_id}\n")
+                f.write(f"setting_id = {setting_id}\n")
+                f.write(f"base_id = {base_id}\n")
+                f.write(f"updated_time = {updated_time}\n")
+        except OSError as e:
+            logger.warning("Could not write .info file %s: %s", info_path, e)
+
+    def _on_clear_list(self) -> None:
+        panel = self._active_panel()
+        if not panel.profiles:
+            return
+        count = len(panel.profiles)
+        if not messagebox.askyesno(
+            "Clear List",
+            f"Remove all {count} profile(s) from the list?",
+            parent=self,
+        ):
+            return
+        panel.profiles.clear()
+        panel._refresh_list()
+        panel.detail._show_placeholder()
 
     def _on_remove(self) -> None:
         self._active_panel().remove_selected()
@@ -1183,7 +1481,9 @@ class App(tk.Tk):
         panel = self._active_panel()
         selected = panel.get_selected_profiles()
         if len(selected) != 1:
-            messagebox.showinfo("Select One", "Select exactly 1 profile to create from.")
+            messagebox.showinfo(
+                "Select One", "Select exactly 1 profile to create from."
+            )
             return
 
         source = selected[0]
@@ -1195,10 +1495,7 @@ class App(tk.Tk):
         dlg.resizable(False, False)
         dlg.transient(self)
         dlg.grab_set()
-        dlg.geometry(
-            "+%d+%d"
-            % (self.winfo_rootx() + 120, self.winfo_rooty() + 120)
-        )
+        dlg.geometry("+%d+%d" % (self.winfo_rootx() + 120, self.winfo_rooty() + 120))
 
         theme = self.theme
         tk.Label(
@@ -1296,20 +1593,22 @@ class App(tk.Tk):
             "Removes artificial printer-compatibility restrictions\n"
             "from 3D printer slicer profiles.\n\n"
             "Mirrors BambuStudio's settings layout.\n"
-            "Supports BambuStudio, OrcaSlicer, PrusaSlicer.",
+            "Supports BambuStudio, OrcaSlicer, Prusa.",
         )
 
     def _update_status(self, msg: str = "") -> None:
         if msg:
-            self.status_var.set(
-                f"[{datetime.now().strftime('%H:%M:%S')}]  {msg}"
-            )
+            self.status_var.set(f"[{datetime.now().strftime('%H:%M:%S')}]  {msg}")
         self._update_counts()
 
     def _update_counts(self) -> None:
-        process_count = len(self.process_panel.profiles)
         filament_count = len(self.filament_panel.profiles)
-        self._count_var.set(f"{process_count} process, {filament_count} filament")
+        self._count_var.set(f"{filament_count} filament profiles")
+
+    def _show_temp_status(self, msg: str, duration: int = 4000) -> None:
+        """Show a temporary status message that reverts after duration ms."""
+        self.status_var.set(f"[{datetime.now().strftime('%H:%M:%S')}]  {msg}")
+        self._safe_after(duration, self._update_counts)
 
     def _on_show_folder(self) -> None:
         """Open the source folder of the currently selected profile."""
@@ -1344,22 +1643,42 @@ class App(tk.Tk):
                 messagebox.showinfo(
                     "Folder Not Found", f"Source folder not found:\n{folder}"
                 )
-        except Exception as e:
+        except (OSError, FileNotFoundError) as e:
             messagebox.showerror("Error", f"Could not open folder:\n{e}")
             logger.error(f"Failed to open folder: {e}", exc_info=True)
 
 
+def _set_macos_app_name() -> None:
+    """Set the process name shown in the macOS menu bar."""
+    import platform
+
+    if platform.system() != "Darwin":
+        return
+    try:
+        from Foundation import NSBundle
+
+        bundle = NSBundle.mainBundle()
+        info = bundle.localizedInfoDictionary() or bundle.infoDictionary()
+        if info:
+            info["CFBundleName"] = APP_NAME
+    except ImportError:
+        pass
+
+
 def run() -> None:
     """Launch the application with top-level error handling."""
+    _set_macos_app_name()
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         handlers=[logging.StreamHandler()],
     )
     try:
         app = App()
         app.mainloop()
-    except Exception:
+    except KeyboardInterrupt:
+        pass
+    except (tk.TclError, RuntimeError):
         logger.critical("Unhandled exception during startup", exc_info=True)
         raise
 

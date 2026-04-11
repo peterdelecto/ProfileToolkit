@@ -6,9 +6,7 @@ import hashlib
 import json
 import logging
 import os
-import platform
 import re
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .constants import _PLATFORM
@@ -19,17 +17,21 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def online_import_prefs_path() -> str:
-    """Path to online_import_prefs.json, platform-aware."""
-    if platform.system() == "Darwin":
-        base = os.path.expanduser("~/Library/Application Support/PrintProfileConverter")
-    elif platform.system() == "Windows":
-        base = os.path.join(
+def _config_base_dir() -> str:
+    """Platform-aware base directory for app config/state files."""
+    # Legacy name "PrintProfileConverter" kept for backward compatibility with existing user state
+    if _PLATFORM == "Darwin":
+        return os.path.expanduser("~/Library/Application Support/PrintProfileConverter")
+    elif _PLATFORM == "Windows":
+        return os.path.join(
             os.environ.get("APPDATA", os.path.expanduser("~")), "PrintProfileConverter"
         )
-    else:
-        base = os.path.expanduser("~/.config/PrintProfileConverter")
-    return os.path.join(base, "online_import_prefs.json")
+    return os.path.expanduser("~/.config/PrintProfileConverter")
+
+
+def online_import_prefs_path() -> str:
+    """Path to online_import_prefs.json, platform-aware."""
+    return os.path.join(_config_base_dir(), "online_import_prefs.json")
 
 
 def load_online_prefs() -> dict:
@@ -44,6 +46,7 @@ def load_online_prefs() -> dict:
 
 
 def save_online_prefs(prefs: dict) -> None:
+    """Persist online import preferences to disk."""
     path = online_import_prefs_path()
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -55,15 +58,7 @@ def save_online_prefs(prefs: dict) -> None:
 
 def state_dir() -> str:
     """Path to profile_state directory, platform-aware."""
-    if platform.system() == "Darwin":
-        base = os.path.expanduser("~/Library/Application Support/PrintProfileConverter")
-    elif platform.system() == "Windows":
-        base = os.path.join(
-            os.environ.get("APPDATA", os.path.expanduser("~")), "PrintProfileConverter"
-        )
-    else:
-        base = os.path.expanduser("~/.config/PrintProfileConverter")
-    return os.path.join(base, "profile_state")
+    return os.path.join(_config_base_dir(), "profile_state")
 
 
 def profile_state_key(profile: Profile) -> str:
@@ -82,6 +77,8 @@ def save_profile_state(profile: Profile) -> None:
     state_path = os.path.join(state_dir(), profile_state_key(profile) + ".json")
     changelog_data = []
     for entry in profile.changelog:
+        if len(entry) < 3:
+            continue
         ts, action, details = entry[0], entry[1], entry[2]
         snapshot = entry[3] if len(entry) > 3 else None
         changelog_data.append(
@@ -106,7 +103,9 @@ def save_profile_state(profile: Profile) -> None:
     except OSError as exc:
         logger.warning("Could not save state for profile '%s': %s", profile.name, exc)
     except TypeError as exc:
-        logger.warning("Could not serialize state for profile '%s': %s", profile.name, exc)
+        logger.warning(
+            "Could not serialize state for profile '%s': %s", profile.name, exc
+        )
 
 
 def restore_profile_state(profiles: list[Profile]) -> None:
@@ -149,16 +148,25 @@ def restore_profile_state(profiles: list[Profile]) -> None:
 def reapply_unlock_state(profile: Profile, state: dict) -> None:
     """Walk the changelog backwards and re-apply the most recent unlock/retarget."""
     saved_log = state.get("changelog", [])
-    for entry in reversed(saved_log):
-        action = entry.get("action", "")
-        if action in ("Unlocked", "Retargeted"):
-            saved_cp = state.get("compatible_printers")
-            if saved_cp is not None:
-                profile.data["compatible_printers"] = saved_cp
-            else:
-                profile.data["compatible_printers"] = []  # fallback for old state files
-            if "compatible_printers_condition" in profile.data:
-                profile.data["compatible_printers_condition"] = ""
-            if "printer_settings_id" in profile.data:
-                profile.data["printer_settings_id"] = ""
-            return
+    if not isinstance(saved_log, list):
+        return
+    try:
+        for entry in reversed(saved_log):
+            if not isinstance(entry, dict):
+                continue
+            action = entry.get("action", "")
+            if action in ("Made Universal", "Retargeted"):
+                saved_cp = state.get("compatible_printers")
+                if isinstance(saved_cp, list):
+                    profile.data["compatible_printers"] = saved_cp
+                elif saved_cp is not None:
+                    profile.data["compatible_printers"] = [str(saved_cp)]
+                else:
+                    profile.data["compatible_printers"] = []
+                if "compatible_printers_condition" in profile.data:
+                    profile.data["compatible_printers_condition"] = ""
+                if "printer_settings_id" in profile.data:
+                    profile.data["printer_settings_id"] = ""
+                return
+    except (TypeError, KeyError, AttributeError):
+        pass

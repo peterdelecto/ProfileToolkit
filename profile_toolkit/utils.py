@@ -54,9 +54,33 @@ def detect_material(profile_or_data: dict | object) -> str:
     return "General"
 
 
+_KEY_ALIASES: dict[str, str] = {
+    # Prusa key → Bambu/Orca key (RECOMMENDATIONS use Bambu/Orca names)
+    "temperature": "nozzle_temperature",
+    "first_layer_temperature": "nozzle_temperature_initial_layer",
+    "disable_fan_first_layers": "close_fan_the_first_x_layers",
+    "min_fan_speed": "fan_min_speed",
+    "max_fan_speed": "fan_max_speed",
+    "min_print_speed": "slow_down_min_speed",
+    "extrusion_multiplier": "filament_flow_ratio",
+    "filament_retract_length": "filament_retraction_length",
+    "filament_retract_speed": "filament_retraction_speed",
+    "filament_deretract_speed": "filament_deretraction_speed",
+    "start_filament_gcode": "filament_start_gcode",
+    "end_filament_gcode": "filament_end_gcode",
+}
+
+
+def _resolve_key(key: str) -> str:
+    """Return the canonical RECOMMENDATIONS key, checking aliases."""
+    if key in RECOMMENDATIONS:
+        return key
+    return _KEY_ALIASES.get(key, key)
+
+
 def get_recommendation(key: str, material: str = "General") -> dict | None:
     """Look up min/max/typical/notes for a parameter+material combo, or None."""
-    rec = RECOMMENDATIONS.get(key)
+    rec = RECOMMENDATIONS.get(_resolve_key(key))
     if not rec:
         return None
     ranges = rec.get("ranges", {})
@@ -64,7 +88,7 @@ def get_recommendation(key: str, material: str = "General") -> dict | None:
 
 
 def get_recommendation_info(key: str) -> str | None:
-    rec = RECOMMENDATIONS.get(key)
+    rec = RECOMMENDATIONS.get(_resolve_key(key))
     return rec.get("info") if rec else None
 
 
@@ -124,18 +148,30 @@ def bind_scroll(widget: tk.Widget, canvas: tk.Canvas) -> None:
     """Hook up mousewheel events on a widget to scroll a canvas (cross-platform)."""
     is_mac = _PLATFORM == "Darwin"
 
+    def _clamp_scroll(units: int) -> None:
+        """Scroll canvas by units, but don't overshoot top or bottom."""
+        top, bottom = canvas.yview()
+        # Content fits entirely — no scrolling needed
+        if top <= 0.0 and bottom >= 1.0:
+            return
+        if units < 0 and top <= 0.0:
+            return
+        if units > 0 and bottom >= 1.0:
+            return
+        canvas.yview_scroll(units, "units")
+
     def on_wheel(event: tk.Event) -> None:
         if is_mac:
-            canvas.yview_scroll(int(-1 * event.delta), "units")
+            _clamp_scroll(int(-1 * event.delta * 3))
         else:
             units = round(-1 * event.delta / _WIN_SCROLL_DELTA_DIVISOR)
             if units == 0:
                 units = -1 if event.delta > 0 else 1
-            canvas.yview_scroll(units, "units")
+            _clamp_scroll(units)
 
     widget.bind("<MouseWheel>", on_wheel)
-    widget.bind("<Button-4>", lambda event: canvas.yview_scroll(-3, "units"))
-    widget.bind("<Button-5>", lambda event: canvas.yview_scroll(3, "units"))
+    widget.bind("<Button-4>", lambda event: _clamp_scroll(-3))
+    widget.bind("<Button-5>", lambda event: _clamp_scroll(3))
 
 
 def lighten_color(hex_color: str, amount: int = COLOR_LIGHTEN_AMOUNT) -> str:
@@ -150,6 +186,7 @@ def lighten_color(hex_color: str, amount: int = COLOR_LIGHTEN_AMOUNT) -> str:
 
 
 def guess_material(name: str) -> str:
+    """Detect material type from profile name."""
     n = name.upper()
     for mat in ("PLA-CF", "PETG", "PLA", "ABS", "ASA", "TPU", "PC", "PA", "PVA", "HIPS", "PPS", "PVDF"):
         if mat in n:
@@ -158,6 +195,7 @@ def guess_material(name: str) -> str:
 
 
 def guess_brand(name: str) -> str:
+    """Detect brand from profile name."""
     for brand in ("Polymaker", "eSUN", "Hatchbox", "Sunlu", "Prusament",
                    "Bambu", "Overture", "3DJake", "Coex", "addnorth", "OVERTURE"):
         if brand.lower() in name.lower():

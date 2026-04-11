@@ -6,12 +6,11 @@ import logging
 import tkinter as tk
 import webbrowser
 from tkinter import ttk, messagebox
-from typing import Callable, Optional, Any, Dict, Tuple
+from typing import Callable, Optional, Any, Dict, Tuple, Union
 from urllib.parse import urlparse
 
 from .constants import (
     _PLATFORM,
-    _TOOLTIP_BORDER_COLOR,
     _NOZZLE_SIZES,
     _ALL_BBL_PRINTERS,
     _KNOWN_PRINTERS,
@@ -19,6 +18,7 @@ from .constants import (
     TOOLTIP_DELAY_MS,
     UI_FONT,
     RECOMMENDATIONS,
+    MAX_POPUP_SOURCES,
 )
 from .theme import Theme
 from .utils import (
@@ -27,6 +27,7 @@ from .utils import (
     get_recommendation,
     get_recommendation_info,
     check_value_range,
+    _resolve_key,
 )
 
 logger = logging.getLogger(__name__)
@@ -46,7 +47,11 @@ class Tooltip:
     """
 
     def __init__(
-        self, widget: tk.Widget, text: str, delay: int = TOOLTIP_DELAY_MS
+        self,
+        widget: tk.Widget,
+        text: str,
+        delay: int = TOOLTIP_DELAY_MS,
+        theme: "Theme | None" = None,
     ) -> None:
         """Initialize tooltip with widget and text.
 
@@ -54,10 +59,12 @@ class Tooltip:
             widget: Target widget for the tooltip.
             text: Text content of the tooltip.
             delay: Milliseconds to wait before showing tooltip.
+            theme: Optional Theme instance for color tokens.
         """
         self.widget: tk.Widget = widget
         self.text: str = text
         self.delay: int = delay
+        self._theme = theme
         self._tip: Optional[tk.Toplevel] = None
         self._after_id: Optional[str] = None
         widget.bind("<Enter>", self._schedule, add="+")
@@ -79,6 +86,8 @@ class Tooltip:
     def _show(self) -> None:
         if not self.text:
             return
+        if self._theme is None:
+            return
         try:
             if not self.widget.winfo_toplevel().focus_displayof():
                 return
@@ -89,18 +98,22 @@ class Tooltip:
         self._tip = tooltip_window = tk.Toplevel(self.widget)
         tooltip_window.wm_overrideredirect(True)
         tooltip_window.wm_geometry(f"+{x}+{y}")
+        t = self._theme
+        popup_bg = t.bg4
+        popup_fg = t.fg
+        popup_border = t.border
         lbl = tk.Label(
             tooltip_window,
             text=self.text,
-            bg="#3E3E45",
-            fg="#EFEFF0",
+            bg=popup_bg,
+            fg=popup_fg,
             font=(UI_FONT, 12),
             padx=8,
             pady=4,
             relief="solid",
             bd=1,
             borderwidth=1,
-            highlightbackground=_TOOLTIP_BORDER_COLOR,
+            highlightbackground=popup_border,
         )
         lbl.pack()
 
@@ -124,7 +137,11 @@ class InfoPopup:
     _active_popup: Optional[InfoPopup] = None  # Class-level: only one popup at a time
 
     def __init__(
-        self, widget: tk.Widget, key: str, material: str = "General"
+        self,
+        widget: tk.Widget,
+        key: str,
+        material: str = "General",
+        theme: "Theme | None" = None,
     ) -> None:
         """Initialize info popup with widget and parameter key.
 
@@ -132,11 +149,14 @@ class InfoPopup:
             widget: The widget that triggers the popup on click.
             key: Parameter key to look up in RECOMMENDATIONS.
             material: Material name for material-specific ranges.
+            theme: Optional Theme instance for color tokens.
         """
         self.widget: tk.Widget = widget
         self.key: str = key
         self.material: str = material
+        self._theme = theme
         self._popup: Optional[tk.Toplevel] = None
+        self._root_click_binding: str | None = None
         widget.bind("<Button-1>", self._toggle, add="+")
 
     def _toggle(self, event: Optional[tk.Event] = None) -> None:
@@ -155,51 +175,28 @@ class InfoPopup:
         except tk.TclError:
             pass
         finally:
+            if self._root_click_binding:
+                try:
+                    self.widget.winfo_toplevel().unbind(
+                        "<Button-1>", self._root_click_binding
+                    )
+                except tk.TclError:
+                    pass
+                self._root_click_binding = None
             if InfoPopup._active_popup is self:
                 InfoPopup._active_popup = None
 
-    def _show(self) -> None:
-        """Display the info popup with recommendations.
-
-        This method is relatively long (~120 lines) because it builds a
-        complex popup with multiple sections. It could be decomposed further
-        into separate methods for each popup section if needed.
-
-        The popup shows:
-        - General info text about the parameter
-        - Material-specific range recommendations
-        - Other material ranges in a compact summary
-        - Sources for the recommendations
-        """
-        rec = RECOMMENDATIONS.get(self.key)
-        if not rec:
-            return
+    def _build_info_section(
+        self, content: tk.Frame, rec: Dict[str, Any], popup_bg: str, popup_fg: str
+    ) -> None:
+        """Build the general info text label section."""
         info_text = rec.get("info", "")
-        ranges = rec.get("ranges", {})
-        mat_range = ranges.get(self.material) or ranges.get("General")
-
-        InfoPopup._active_popup = self
-
-        x = self.widget.winfo_rootx()
-        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
-
-        self._popup = popup = tk.Toplevel(self.widget)
-        popup.wm_overrideredirect(True)
-        popup.configure(
-            bg="#3E3E45", highlightbackground="#4A4A51", highlightthickness=1
-        )
-
-        # Content frame
-        content = tk.Frame(popup, bg="#3E3E45", padx=12, pady=10)
-        content.pack(fill="both", expand=True)
-
-        # Info text
         if info_text:
             info_lbl = tk.Label(
                 content,
                 text=info_text,
-                bg="#3E3E45",
-                fg="#EFEFF0",
+                bg=popup_bg,
+                fg=popup_fg,
                 font=(UI_FONT, 12),
                 wraplength=380,
                 justify="left",
@@ -207,26 +204,39 @@ class InfoPopup:
             )
             info_lbl.pack(anchor="w", pady=(0, 6))
 
-        # Range info for current material
+    def _build_range_section(
+        self,
+        content: tk.Frame,
+        mat_range: Dict[str, Any],
+        ranges: Dict[str, Any],
+        popup_bg: str,
+        popup_fg: str,
+        popup_fg3: str,
+        range_bg: str,
+        popup_border: str,
+        rec_fg: str,
+        note_fg: str,
+    ) -> None:
+        """Build the material-specific range and other materials summary section."""
         if mat_range:
             mat_display = (
                 self.material if self.material != "General" else "All materials"
             )
             range_frame = tk.Frame(
                 content,
-                bg="#3A3A41",
-                highlightbackground="#4A4A51",
+                bg=range_bg,
+                highlightbackground=popup_border,
                 highlightthickness=1,
             )
             range_frame.pack(fill="x", pady=(2, 0))
-            inner = tk.Frame(range_frame, bg="#3A3A41", padx=8, pady=6)
+            inner = tk.Frame(range_frame, bg=range_bg, padx=8, pady=6)
             inner.pack(fill="x")
 
             tk.Label(
                 inner,
                 text=f"Recommended for {mat_display}:",
-                bg="#3A3A41",
-                fg="#009688",
+                bg=range_bg,
+                fg=rec_fg,
                 font=(UI_FONT, 12, "bold"),
                 anchor="w",
             ).pack(anchor="w")
@@ -240,8 +250,8 @@ class InfoPopup:
                 tk.Label(
                     inner,
                     text="  ·  ".join(range_parts),
-                    bg="#3A3A41",
-                    fg="#EFEFF0",
+                    bg=range_bg,
+                    fg=popup_fg,
                     font=(UI_FONT, 12),
                     anchor="w",
                 ).pack(anchor="w", pady=(2, 0))
@@ -251,9 +261,9 @@ class InfoPopup:
                 tk.Label(
                     inner,
                     text=notes,
-                    bg="#3A3A41",
-                    fg="#FD6F28",
-                    font=(UI_FONT, 12, "italic"),
+                    bg=range_bg,
+                    fg=note_fg,
+                    font=(UI_FONT, 12, "bold italic"),
                     anchor="w",
                     wraplength=360,
                 ).pack(anchor="w", pady=(2, 0))
@@ -263,21 +273,21 @@ class InfoPopup:
             k: v for k, v in ranges.items() if k != self.material and k != "General"
         }
         if other_mats:
-            sep = tk.Frame(content, bg="#4A4A51", height=1)
+            sep = tk.Frame(content, bg=popup_border, height=1)
             sep.pack(fill="x", pady=(8, 4))
             tk.Label(
                 content,
                 text="Other materials:",
-                bg="#3E3E45",
-                fg="#B3B3B5",
+                bg=popup_bg,
+                fg=popup_fg3,
                 font=(UI_FONT, 12),
                 anchor="w",
             ).pack(anchor="w")
             summary_parts = []
             for mat, rng in sorted(other_mats.items()):
-                t = rng.get("typical", "")
-                if t:
-                    summary_parts.append(f"{mat}: {t}")
+                _t = rng.get("typical", "")
+                if _t:
+                    summary_parts.append(f"{mat}: {_t}")
             if summary_parts:
                 # Show in rows of 3
                 for i in range(0, len(summary_parts), 3):
@@ -285,13 +295,28 @@ class InfoPopup:
                     tk.Label(
                         content,
                         text=row_text,
-                        bg="#3E3E45",
-                        fg="#B3B3B5",
+                        bg=popup_bg,
+                        fg=popup_fg3,
                         font=(UI_FONT, 12),
                         anchor="w",
                     ).pack(anchor="w")
 
-        # Sources section — collect, deduplicate, and cap at 5 with max domain diversity
+    def _build_sources_section(
+        self,
+        content: tk.Frame,
+        rec: Dict[str, Any],
+        mat_range: Optional[Dict[str, Any]],
+        popup_bg: str,
+        popup_fg3: str,
+        popup_border: str,
+        link_fg: str,
+    ) -> None:
+        """Build the sources links section.
+
+        Source priority: material-specific sources are shown when available.
+        Top-level (parameter-wide) sources are only used as fallback when the
+        active material has no dedicated sources.
+        """
         _all_sources = []
         _seen_urls: set[str] = set()
         # Material-specific sources first (higher priority)
@@ -300,15 +325,14 @@ class InfoPopup:
                 if src["url"] not in _seen_urls:
                     _all_sources.append(src)
                     _seen_urls.add(src["url"])
-        # Then top-level sources
-        if rec.get("sources"):
+        # Top-level sources ONLY when no material-specific sources exist
+        if not _all_sources and rec.get("sources"):
             for src in rec["sources"]:
                 if src["url"] not in _seen_urls:
                     _all_sources.append(src)
                     _seen_urls.add(src["url"])
         # If more than 5, pick the most diverse set by domain
-        _MAX_SOURCES = 5
-        if len(_all_sources) > _MAX_SOURCES:
+        if len(_all_sources) > MAX_POPUP_SOURCES:
             sources_to_show = []
             _used_domains: dict[str, int] = {}
             # Pass 1: one source per unique domain
@@ -317,28 +341,28 @@ class InfoPopup:
                 if domain not in _used_domains:
                     sources_to_show.append(src)
                     _used_domains[domain] = 1
-                    if len(sources_to_show) >= _MAX_SOURCES:
+                    if len(sources_to_show) >= MAX_POPUP_SOURCES:
                         break
             # Pass 2: fill remaining slots from least-represented domains
-            if len(sources_to_show) < _MAX_SOURCES:
+            if len(sources_to_show) < MAX_POPUP_SOURCES:
                 for src in _all_sources:
                     if src in sources_to_show:
                         continue
                     domain = urlparse(src["url"]).netloc.lower()
                     sources_to_show.append(src)
                     _used_domains[domain] = _used_domains.get(domain, 0) + 1
-                    if len(sources_to_show) >= _MAX_SOURCES:
+                    if len(sources_to_show) >= MAX_POPUP_SOURCES:
                         break
         else:
             sources_to_show = _all_sources
         if sources_to_show:
-            sep2 = tk.Frame(content, bg="#4A4A51", height=1)
+            sep2 = tk.Frame(content, bg=popup_border, height=1)
             sep2.pack(fill="x", pady=(8, 4))
             tk.Label(
                 content,
                 text="Sources:",
-                bg="#3E3E45",
-                fg="#B3B3B5",
+                bg=popup_bg,
+                fg=popup_fg3,
                 font=(UI_FONT, 12),
                 anchor="w",
             ).pack(anchor="w")
@@ -346,34 +370,92 @@ class InfoPopup:
                 link = tk.Label(
                     content,
                     text=f"\u2197 {src['label']}",
-                    bg="#3E3E45",
-                    fg="#4B9FE8",
+                    bg=popup_bg,
+                    fg=link_fg,
                     font=(UI_FONT, 12, "underline"),
                     cursor="hand2",
                     anchor="w",
                 )
                 link.pack(anchor="w", padx=(8, 0))
-                link.bind(
-                    "<Button-1>", lambda e, u=src["url"]: webbrowser.open(u)
-                )
+                link.bind("<Button-1>", lambda e, u=src["url"]: webbrowser.open(u))
+
+    def _show(self) -> None:
+        """Display the info popup with recommendations.
+
+        Orchestrates popup creation and calls helper methods to build sections:
+        - General info text about the parameter
+        - Material-specific range recommendations
+        - Other material ranges in a compact summary
+        - Sources for the recommendations
+        """
+        rec = RECOMMENDATIONS.get(_resolve_key(self.key))
+        if not rec:
+            return
+        ranges = rec.get("ranges", {})
+        mat_range = ranges.get(self.material) or ranges.get("General")
+
+        InfoPopup._active_popup = self
+
+        x = self.widget.winfo_rootx()
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+
+        theme = self._theme
+        popup_bg = theme.bg4
+        popup_border = theme.border
+        popup_fg = theme.fg
+        popup_fg3 = theme.fg3
+        range_bg = theme.bg3
+        rec_fg = theme.recommended
+        note_fg = theme.note
+        link_fg = theme.accent
+
+        self._popup = popup = tk.Toplevel(self.widget)
+        popup.wm_overrideredirect(True)
+        popup.configure(
+            bg=popup_bg, highlightbackground=popup_border, highlightthickness=1
+        )
+
+        # Content frame
+        content = tk.Frame(popup, bg=popup_bg, padx=12, pady=10)
+        content.pack(fill="both", expand=True)
+
+        # Build popup sections
+        self._build_info_section(content, rec, popup_bg, popup_fg)
+        self._build_range_section(
+            content,
+            mat_range,
+            ranges,
+            popup_bg,
+            popup_fg,
+            popup_fg3,
+            range_bg,
+            popup_border,
+            rec_fg,
+            note_fg,
+        )
+        self._build_sources_section(
+            content, rec, mat_range, popup_bg, popup_fg3, popup_border, link_fg
+        )
 
         # Position popup — clamp to screen
         popup.update_idletasks()
-        pw = popup.winfo_reqwidth()
-        ph = popup.winfo_reqheight()
-        sw = popup.winfo_screenwidth()
-        sh = popup.winfo_screenheight()
-        if x + pw > sw:
-            x = sw - pw - 10
-        if y + ph > sh:
-            y = self.widget.winfo_rooty() - ph - 4
+        popup_width = popup.winfo_reqwidth()
+        popup_height = popup.winfo_reqheight()
+        screen_width = popup.winfo_screenwidth()
+        screen_height = popup.winfo_screenheight()
+        if x + popup_width > screen_width:
+            x = screen_width - popup_width - 10
+        if y + popup_height > screen_height:
+            y = self.widget.winfo_rooty() - popup_height - 4
         popup.wm_geometry(f"+{x}+{y}")
 
         # Dismiss on click outside or Escape
         popup.bind("<Escape>", self._dismiss)
         popup.bind("<FocusOut>", self._dismiss)
         # Also dismiss if user clicks anywhere else (delayed to not catch our own click)
-        self.widget.winfo_toplevel().bind("<Button-1>", self._on_root_click, add="+")
+        self._root_click_binding = self.widget.winfo_toplevel().bind(
+            "<Button-1>", self._on_root_click, add="+"
+        )
 
     def _on_root_click(self, event: tk.Event) -> None:
         if not self._popup:
@@ -420,7 +502,7 @@ class ScrollableFrame(tk.Frame):
     def __init__(
         self,
         parent: tk.Widget,
-        bg: str = "#2D2D31",
+        bg: Optional[str] = None,
         highlight_border: Optional[str] = None,
         **kwargs: Any,
     ) -> None:
@@ -428,16 +510,18 @@ class ScrollableFrame(tk.Frame):
 
         Args:
             parent: Parent widget.
-            bg: Background color.
+            bg: Background color (defaults to Theme().bg if not provided).
             highlight_border: Optional border highlight color.
             **kwargs: Additional frame keyword arguments.
         """
+        if bg is None:
+            bg = "#2D2D31"  # Theme.bg default — avoids instantiating Theme()
         super().__init__(parent, bg=bg, **kwargs)
         if highlight_border:
-            self.configure(
-                highlightbackground=highlight_border, highlightthickness=1
-            )
-        self.canvas: tk.Canvas = tk.Canvas(self, bg=bg, highlightthickness=0)
+            self.configure(highlightbackground=highlight_border, highlightthickness=1)
+        self.canvas: tk.Canvas = tk.Canvas(
+            self, bg=bg, highlightthickness=0, yscrollincrement=4
+        )
         self._scrollbar: ttk.Scrollbar = ttk.Scrollbar(
             self, orient="vertical", command=self.canvas.yview
         )
@@ -465,9 +549,8 @@ class ScrollableFrame(tk.Frame):
             bind_scroll(widget, self.canvas)
             for child in widget.winfo_children():
                 _recurse(child)
+
         _recurse(self.body)
-
-
 
 
 def make_btn(
@@ -476,7 +559,7 @@ def make_btn(
     command: Callable[[], None],
     bg: str,
     fg: str,
-    font: Tuple[str, int] = (UI_FONT, 12),
+    font: Union[Tuple[str, int], Tuple[str, int, str]] = (UI_FONT, 12),
     padx: int = 10,
     pady: int = 4,
     image: Optional[Any] = None,
@@ -508,7 +591,14 @@ def make_btn(
     """
     state = {"bg": bg}
 
-    wrapper = tk.Frame(parent, bg=bg, highlightthickness=0)
+    wrapper = tk.Frame(
+        parent,
+        bg=bg,
+        highlightthickness=1,
+        highlightbackground=bg,
+        highlightcolor=fg,
+        takefocus=True,
+    )
     lbl_kw: Dict[str, Any] = dict(
         text=text,
         bg=bg,
@@ -525,6 +615,8 @@ def make_btn(
     lbl.pack(side="top")
     lbl.bind("<Button-1>", lambda e: command())
     wrapper.bind("<Button-1>", lambda e: command())
+    wrapper.bind("<Return>", lambda e: command() if command else None)
+    wrapper.bind("<space>", lambda e: command() if command else None)
 
     def _on_btn_enter(e: tk.Event) -> None:
         lit = lighten_color(state["bg"])
@@ -544,7 +636,24 @@ def make_btn(
     _orig_configure = wrapper.configure
 
     def _proxy_configure(**kwargs: Any) -> None:
-        label_keys = {"fg", "bg", "font", "text", "cursor", "image", "compound"}
+        """Route configure() to both wrapper Frame and inner Label.
+
+        macOS tk.Button renders with a system chrome bezel that ignores
+        bg/fg, so make_btn uses a Frame+Label pair instead.  This proxy
+        lets callers treat the wrapper like a normal widget — label keys
+        (fg, text, font, ...) go to the Label while frame keys go to the
+        wrapper, keeping both in sync.
+        """
+        label_keys = {
+            "fg",
+            "bg",
+            "font",
+            "text",
+            "cursor",
+            "image",
+            "compound",
+            "state",
+        }
         lbl_kw_new = {k: v for k, v in kwargs.items() if k in label_keys}
         wrap_kw = {k: v for k, v in kwargs.items() if k not in label_keys}
         if "bg" in kwargs:
@@ -564,16 +673,16 @@ class ExportDialog(tk.Toplevel):
     """Dialog shown before export. Offers file export and slicer quick-install.
 
     This dialog appears when the user initiates a profile export. It allows them to:
-    - Choose whether to flatten inherited parameters
     - Export directly to a detected slicer's preset folder
     - Export to a file
+
+    All exports are automatically flattened (inherited parameters included).
 
     Args:
         parent: Parent window.
         theme: Theme object containing color scheme.
         count: Number of profiles being exported (for plural display).
         detected_slicers: Dict mapping slicer name -> path to installation.
-        any_has_inheritance: Whether any profile has inherited parameters.
     """
 
     def __init__(
@@ -582,7 +691,6 @@ class ExportDialog(tk.Toplevel):
         theme: Theme,
         count: int = 1,
         detected_slicers: Optional[Dict[str, str]] = None,
-        any_has_inheritance: bool = False,
     ) -> None:
         """Initialize export dialog.
 
@@ -591,15 +699,16 @@ class ExportDialog(tk.Toplevel):
             theme: Theme for dialog styling.
             count: Number of profiles to export.
             detected_slicers: Detected slicer installations.
-            any_has_inheritance: Whether any profile has parent profiles.
         """
         super().__init__(parent)
         self.theme: Theme = theme
         self.result: Optional[str] = None  # "file" for save-to-file, or None for cancel
-        self.flatten: bool = False
-        self.slicer_target: Optional[Tuple[str, str]] = None  # (name, path) if installing to slicer
+        self.flatten: bool = True
+        self.export_format: str = "json"  # "json" or "ini"
+        self.slicer_target: Optional[Tuple[str, str]] = (
+            None  # (name, path) if installing to slicer
+        )
         self._detected_slicers: Dict[str, str] = detected_slicers or {}
-        self._any_has_inheritance: bool = any_has_inheritance
         self.title("Export Profiles")
         self.configure(bg=theme.bg)
         self.resizable(False, False)
@@ -623,33 +732,35 @@ class ExportDialog(tk.Toplevel):
         opts = tk.Frame(self, bg=theme.bg)
         opts.pack(fill="x", padx=20, pady=8)
 
-        default_flatten = self._any_has_inheritance
-        self._flatten_var: tk.BooleanVar = tk.BooleanVar(value=default_flatten)
-        checkbox = tk.Checkbutton(
-            opts,
-            text="Flatten inherited parameters",
-            variable=self._flatten_var,
-            bg=theme.bg,
-            fg=theme.fg,
-            selectcolor=theme.bg,
-            activebackground=theme.bg,
-            activeforeground=theme.fg,
-            indicatoron=True,
-            offrelief="flat",
-            font=(UI_FONT, 12),
-        )
-        checkbox.pack(anchor="w", padx=8, pady=4)
-        flatten_desc = "Write all parameter settings into the profile."
-        if self._any_has_inheritance:
-            flatten_desc += " Recommended — some profiles inherit from a parent."
         tk.Label(
             opts,
-            text=flatten_desc,
+            text="All inherited parameters will be included in the export.",
             bg=theme.bg,
             fg=theme.fg2,
             font=(UI_FONT, 12, "italic"),
             justify="left",
-        ).pack(anchor="w", padx=28)
+        ).pack(anchor="w", padx=8, pady=4)
+
+        # Format selection
+        fmt_frame = tk.Frame(opts, bg=theme.bg)
+        fmt_frame.pack(anchor="w", padx=8, pady=(8, 0))
+        tk.Label(
+            fmt_frame, text="Format:", bg=theme.bg, fg=theme.fg, font=(UI_FONT, 12)
+        ).pack(side="left", padx=(0, 8))
+        self._fmt_var = tk.StringVar(value="json")
+        for fmt_val, fmt_label in [("json", "JSON"), ("ini", "INI (PrusaSlicer)")]:
+            tk.Radiobutton(
+                fmt_frame,
+                text=fmt_label,
+                variable=self._fmt_var,
+                value=fmt_val,
+                bg=theme.bg,
+                fg=theme.fg,
+                selectcolor=theme.bg,
+                activebackground=theme.bg,
+                activeforeground=theme.fg,
+                font=(UI_FONT, 12),
+            ).pack(side="left", padx=(0, 12))
 
         if self._detected_slicers:
             sep = tk.Frame(self, bg=theme.border, height=1)
@@ -670,7 +781,7 @@ class ExportDialog(tk.Toplevel):
             for name, path in self._detected_slicers.items():
                 try:
                     dest_dir = SlicerDetector.get_export_dir(path)
-                except Exception as e:
+                except OSError as e:
                     logger.error(f"Failed to get slicer export dir for {name}: {e}")
                     continue
                 make_btn(
@@ -690,7 +801,7 @@ class ExportDialog(tk.Toplevel):
                     tk.Label(
                         self, text=dest, bg=theme.bg, fg=theme.fg3, font=(UI_FONT, 12)
                     ).pack(anchor="w", padx=28, pady=(0, 4))
-                except Exception as e:
+                except OSError as e:
                     logger.error(f"Failed to show slicer path for {name}: {e}")
 
             sep2 = tk.Frame(self, bg=theme.border, height=1)
@@ -722,12 +833,11 @@ class ExportDialog(tk.Toplevel):
 
     def _ok(self) -> None:
         self.result = "file"
-        self.flatten = self._flatten_var.get()
+        self.export_format = self._fmt_var.get()
         self.destroy()
 
     def _install_to_slicer(self, name: str, path: str) -> None:
         self.result = "slicer"
-        self.flatten = self._flatten_var.get()
         self.slicer_target = (name, path)
         self.destroy()
 
@@ -749,9 +859,7 @@ class UnlockDialog(tk.Toplevel):
         count: Number of profiles being unlocked.
     """
 
-    def __init__(
-        self, parent: tk.Widget, theme: Theme, count: int = 1
-    ) -> None:
+    def __init__(self, parent: tk.Widget, theme: Theme, count: int = 1) -> None:
         """Initialize unlock dialog.
 
         Args:
@@ -762,15 +870,12 @@ class UnlockDialog(tk.Toplevel):
         super().__init__(parent)
         self.theme: Theme = theme
         self.result: Optional[Any] = None
-        self.title("Unlock Profiles")
+        self.title("Make Profiles Universal")
         self.configure(bg=theme.bg)
         self.resizable(False, False)
         self.transient(parent)
         self.grab_set()
-        self.geometry(
-            "+%d+%d"
-            % (parent.winfo_rootx() + 50, parent.winfo_rooty() + 50)
-        )
+        self.geometry("+%d+%d" % (parent.winfo_rootx() + 50, parent.winfo_rooty() + 50))
         self._build(count)
         self.wait_window()
 
@@ -792,7 +897,7 @@ class UnlockDialog(tk.Toplevel):
         )
         note_frame.pack(fill="x", padx=16, pady=(0, 8))
         note_icon = tk.Label(
-            note_frame, text="\u2139", bg=theme.bg3, fg=theme.converted, font=(UI_FONT, 14)
+            note_frame, text="\u2139", bg=theme.bg3, fg=theme.info, font=(UI_FONT, 14)
         )
         note_icon.pack(side="left", padx=(10, 6), pady=8)
         note_text_frame = tk.Frame(note_frame, bg=theme.bg3)
@@ -862,9 +967,7 @@ class UnlockDialog(tk.Toplevel):
         canvas = tk.Canvas(
             list_frame, bg=theme.bg3, highlightthickness=0, width=380, height=200
         )
-        scrollbar = tk.Scrollbar(
-            list_frame, orient="vertical", command=canvas.yview
-        )
+        scrollbar = tk.Scrollbar(list_frame, orient="vertical", command=canvas.yview)
         self.check_frame: tk.Frame = tk.Frame(canvas, bg=theme.bg3)
         self.check_frame.bind(
             "<Configure>",
@@ -886,12 +989,12 @@ class UnlockDialog(tk.Toplevel):
             ).pack(anchor="w", padx=8, pady=(8, 2))
             for model in models:
                 for nz in _NOZZLE_SIZES:
-                    ps = f"{model} {nz} nozzle"
+                    printer_nozzle_name = f"{model} {nz} nozzle"
                     v: tk.BooleanVar = tk.BooleanVar(value=False)
-                    self.pvars[ps] = v
+                    self.pvars[printer_nozzle_name] = v
                     tk.Checkbutton(
                         self.check_frame,
-                        text=ps,
+                        text=printer_nozzle_name,
                         variable=v,
                         bg=theme.bg3,
                         fg=theme.fg,
@@ -899,6 +1002,12 @@ class UnlockDialog(tk.Toplevel):
                         activebackground=theme.bg3,
                         activeforeground=theme.fg,
                     ).pack(anchor="w", padx=24)
+
+        # Bind mousewheel scroll on all children of the scrollable canvas
+        for child in self.check_frame.winfo_children():
+            bind_scroll(child, canvas)
+        bind_scroll(self.check_frame, canvas)
+        bind_scroll(canvas, canvas)
 
         tk.Label(
             self.printer_frame,

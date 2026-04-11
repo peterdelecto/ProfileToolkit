@@ -34,6 +34,7 @@ ICON_MAC = "resources/AppIcon.icns"
 ICON_WIN = "resources/AppIcon.ico"
 ICON_LINUX = "resources/AppIcon.png"
 
+
 def run(cmd, check=True):
     """Run a command and print it."""
     print(f"  > {' '.join(cmd)}")
@@ -45,28 +46,34 @@ def run(cmd, check=True):
         sys.exit(1)
     return result
 
+
 def ensure_pyinstaller():
     """Install PyInstaller if not available."""
     try:
         import PyInstaller
+
         print(f"  PyInstaller {PyInstaller.__version__} found.")
     except ImportError:
         print("  Installing PyInstaller...")
         run([sys.executable, "-m", "pip", "install", "pyinstaller"])
         print("  PyInstaller installed.")
 
+
 def build_macos():
     """Build a macOS .app bundle."""
     print("\n--- Building macOS .app bundle ---\n")
 
     cmd = [
-        sys.executable, "-m", "PyInstaller",
-        "--name", APP_NAME,
-        "--windowed",           # .app bundle, no terminal window
-        "--onedir",             # Single directory (faster startup than onefile)
-        "--noconfirm",          # Overwrite previous build
-        "--clean",              # Clean build cache
-        "--strip",              # Strip debug symbols
+        sys.executable,
+        "-m",
+        "PyInstaller",
+        "--name",
+        APP_NAME,
+        "--windowed",  # .app bundle, no terminal window
+        "--onedir",  # Single directory (faster startup than onefile)
+        "--noconfirm",  # Overwrite previous build
+        "--clean",  # Clean build cache
+        "--strip",  # Strip debug symbols
     ]
 
     # Add icon if available
@@ -80,10 +87,22 @@ def build_macos():
             cmd.extend(["--add-data", f"{icon_dir}{os.pathsep}resources/icons/{size}"])
 
     # Bundle app icon PNGs for window icon (taskbar / title bar)
-    for icon_png in ("AppIcon-32.png", "AppIcon-64.png"):
+    for icon_png in (
+        "AppIcon-32.png",
+        "AppIcon-64.png",
+        "AppIcon-128.png",
+        "AppIcon.png",
+        "AppIcon-256.png",
+        "AppIcon-512.png",
+    ):
         icon_path = os.path.join("resources", icon_png)
         if os.path.exists(icon_path):
             cmd.extend(["--add-data", f"{icon_path}{os.pathsep}resources"])
+
+    # Bundle harvested profiles (if present)
+    bundle_dir = os.path.join(os.path.dirname(__file__), "bundled_profiles")
+    if os.path.isdir(bundle_dir):
+        cmd.extend(["--add-data", f"{bundle_dir}{os.pathsep}bundled_profiles"])
 
     # macOS-specific: ensure high-DPI support
     cmd.extend(["--osx-bundle-identifier", "com.profiletoolkit.app"])
@@ -101,14 +120,18 @@ def build_macos():
     else:
         print("\n  ERROR: .app bundle not found in dist/")
 
+
 def build_windows():
     """Build a Windows .exe."""
     print("\n--- Building Windows .exe ---\n")
 
     cmd = [
-        sys.executable, "-m", "PyInstaller",
-        "--name", APP_NAME,
-        "--windowed",           # No console window
+        sys.executable,
+        "-m",
+        "PyInstaller",
+        "--name",
+        APP_NAME,
+        "--windowed",  # No console window
         "--onedir",
         "--noconfirm",
         "--clean",
@@ -124,10 +147,22 @@ def build_windows():
             cmd.extend(["--add-data", f"{icon_dir}{os.pathsep}resources/icons/{size}"])
 
     # Bundle app icon PNGs for window icon (taskbar / title bar)
-    for icon_png in ("AppIcon-32.png", "AppIcon-64.png"):
+    for icon_png in (
+        "AppIcon-32.png",
+        "AppIcon-64.png",
+        "AppIcon-128.png",
+        "AppIcon.png",
+        "AppIcon-256.png",
+        "AppIcon-512.png",
+    ):
         icon_path = os.path.join("resources", icon_png)
         if os.path.exists(icon_path):
             cmd.extend(["--add-data", f"{icon_path}{os.pathsep}resources"])
+
+    # Bundle harvested profiles (if present)
+    bundle_dir = os.path.join(os.path.dirname(__file__), "bundled_profiles")
+    if os.path.isdir(bundle_dir):
+        cmd.extend(["--add-data", f"{bundle_dir}{os.pathsep}bundled_profiles"])
 
     cmd.append(SCRIPT)
     run(cmd)
@@ -140,13 +175,17 @@ def build_windows():
     else:
         print("\n  ERROR: .exe not found in dist/")
 
+
 def build_linux():
     """Build a Linux binary."""
     print("\n--- Building Linux binary ---\n")
 
     cmd = [
-        sys.executable, "-m", "PyInstaller",
-        "--name", APP_NAME.lower().replace(" ", "-"),
+        sys.executable,
+        "-m",
+        "PyInstaller",
+        "--name",
+        APP_NAME.lower().replace(" ", "-"),
         "--windowed",
         "--onedir",
         "--noconfirm",
@@ -163,10 +202,22 @@ def build_linux():
             cmd.extend(["--add-data", f"{icon_dir}{os.pathsep}resources/icons/{size}"])
 
     # Bundle app icon PNGs for window icon (taskbar / title bar)
-    for icon_png in ("AppIcon-32.png", "AppIcon-64.png"):
+    for icon_png in (
+        "AppIcon-32.png",
+        "AppIcon-64.png",
+        "AppIcon-128.png",
+        "AppIcon.png",
+        "AppIcon-256.png",
+        "AppIcon-512.png",
+    ):
         icon_path = os.path.join("resources", icon_png)
         if os.path.exists(icon_path):
             cmd.extend(["--add-data", f"{icon_path}{os.pathsep}resources"])
+
+    # Bundle harvested profiles (if present)
+    bundle_dir = os.path.join(os.path.dirname(__file__), "bundled_profiles")
+    if os.path.isdir(bundle_dir):
+        cmd.extend(["--add-data", f"{bundle_dir}{os.pathsep}bundled_profiles"])
 
     cmd.append(SCRIPT)
     run(cmd)
@@ -175,10 +226,13 @@ def build_linux():
     binary_path = os.path.join("dist", binary_name, binary_name)
     if os.path.exists(binary_path):
         print(f"\n  SUCCESS: {binary_path}")
-        print(f"  Folder size: {get_dir_size(os.path.join('dist', binary_name)):.1f} MB")
+        print(
+            f"  Folder size: {get_dir_size(os.path.join('dist', binary_name)):.1f} MB"
+        )
         print(f"\n  To distribute: tar/zip the '{binary_name}' folder and share it.")
     else:
         print("\n  ERROR: binary not found in dist/")
+
 
 def get_dir_size(path):
     """Get total size of a directory in MB."""
@@ -188,6 +242,7 @@ def get_dir_size(path):
             fp = os.path.join(dirpath, f)
             total += os.path.getsize(fp)
     return total / (1024 * 1024)
+
 
 def main():
     print(f"{'=' * 50}")
@@ -204,6 +259,7 @@ def main():
     # Verify tkinter
     try:
         import tkinter
+
         print(f"  tkinter: OK")
     except ImportError:
         print("\nERROR: tkinter not found. Install it:")
@@ -233,6 +289,7 @@ def main():
     print(f"\n{'=' * 50}")
     print("  Build complete!")
     print(f"{'=' * 50}\n")
+
 
 if __name__ == "__main__":
     main()

@@ -1,0 +1,69 @@
+{
+  "generated_at": "2026-04-11T09:50:18Z",
+  "providers": {
+    "prusaresearch": {
+      "name": "Prusa (Experimental)",
+      "website": "https://github.com/prusa3d/PrusaSlicer",
+      "license": "",
+      "profile_count": 5588,
+      "commit_sha": ""
+    },
+    "polymaker": {
+      "name": "Polymaker",
+      "website": "https://wiki.polymaker.com/polymaker-products/printer-profiles",
+      "license": "",
+      "profile_count": 31,
+      "commit_sha": ""
+    },
+    "colorfabb": {
+      "name": "colorFabb",
+      "website": "https://github.com/colorfabb/printer-profiles",
+      "license": "",
+      "profile_count": 84,
+      "commit_sha": "2d914c31ec2204e3d526d5b8f1b1ae9642043b0a"
+    },
+    "simplyprint": {
+      "name": "SimplyPrint Slicer DB",
+      "website": "https://github.com/SimplyPrint/slicer-profiles-db",
+      "license": "",
+      "profile_count": 1000,
+      "commit_sha": "7356ef3369efc9e5468dee617198cc6cd5bb00da"
+    },
+    "orcalibrary": {
+      "name": "OrcaSlicer Built-in Library",
+      "website": "https://github.com/SoftFever/OrcaSlicer",
+      "license": "",
+      "profile_count": 29,
+      "commit_sha": "15c1dbfab674d982242c36f5bc0e12bb33063e78"
+    },
+    "bambustudio_official": {
+      "name": "BambuStudio Official (BBL)",
+      "website": "https://github.com/bambulab/BambuStudio",
+      "license": "",
+      "profile_count": 1000,
+      "commit_sha": ""
+    },
+    "community_presets": {
+      "name": "Community Presets (DR. Ignaz)",
+      "website": "https://github.com/DRIgnazGortngschirl/bambulab-studio-orca-slicer-presets",
+      "license": "",
+      "profile_count": 97,
+      "commit_sha": "ad6edd12a0def83bdb462f7eb6e364d8176c0b2f"
+    },
+    "santanachia": {
+      "name": "Santanachia Custom Filaments",
+      "website": "https://github.com/Santanachia/BambuStudio_CustomFilaments",
+      "license": "",
+      "profile_count": 105,
+      "commit_sha": ""
+    },
+    "dgauche_filament_lib": {
+      "name": "BambuStudio Filament Library (dgauche)",
+      "website": "https://github.com/dgauche/BambuStudioFilamentLibrary",
+      "license": "",
+      "profile_count": 0,
+      "commit_sha": ""
+    }
+  },
+  "total_profiles": 7934
+}

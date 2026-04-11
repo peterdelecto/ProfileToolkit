@@ -9,25 +9,60 @@ __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
+.venv/
 
 # macOS
 .DS_Store
 
-# IDE
+# IDE / tools
 .vscode/
 .idea/
+.claude/
 
-# Icon build intermediates
+# Bundled profiles (42MB downloaded data — regenerate with scripts/harvest_profiles.py)
+bundled_profiles/*/
+!bundled_profiles/manifest.json
+!bundled_profiles/CREDITS.md
+
+# Icon source files and intermediates (only ship final PNGs + icns + ico)
+assets/
+resources/AppIcon.ai
+resources/AppIcon.psd
+resources/AppIcon*.svg
+resources/AppIconNew.*
+resources/AppIconFinal.*
 resources/AppIcon_1024.png
 resources/AppIcon_preview.png
 resources/appicon_preview_sizes.png
-resources/icons/preview_sheet.png
-resources/icons/comparison_sheet.png
+resources/ICON_POLISH_BRIEFING.md
+resources/generate_icon.sh
+resources/icons/
 
-# Working docs (not part of the app)
+# macOS launcher
+run.command
+
+# Large icon intermediates (keep final sized PNGs, not base/1024)
+resources/AppIcon.png
+resources/AppIcon-1024.png
+
+# Example / test profile data
+example_profiles/
+
+# Working docs / notes (not part of the app)
 docs/
+prompts/
+CLAUDE.md
+AUDIT_REPORT.md
+carryforward.md
+compare_debug.log
+convert-tab-mockup-a.html
+convert-tab-mockups.jsx
 CARRY_FORWARD.md
 CODE_AUDIT.md
 prompt_*.md
 ux_*.md
 theme_mockups.html
+
+# Lock files and utility scripts
+uv.lock
+scripts/
