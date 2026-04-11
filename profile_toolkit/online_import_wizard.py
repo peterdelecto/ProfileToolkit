@@ -86,6 +86,12 @@ class OnlineImportWizard(tk.Toplevel):
         # Keyboard shortcuts
         self.bind("<Return>", lambda e: self._on_next())
         self.bind("<Escape>", lambda e: self._on_cancel())
+        self.bind(
+            "<Up>", lambda e: self._nav_source(-1) if self._current_step == 0 else None
+        )
+        self.bind(
+            "<Down>", lambda e: self._nav_source(1) if self._current_step == 0 else None
+        )
 
     def _bind_wizard_scroll(self, canvas: tk.Canvas) -> None:
         # Unbind previous (MouseWheel + Linux Button-4/5)
@@ -909,6 +915,8 @@ class OnlineImportWizard(tk.Toplevel):
         ).pack(anchor="w", pady=(6, 0))
 
     def _apply_filters(self) -> None:
+        if self._current_step != 1 or not self._catalog:
+            return
         mat = self._filter_material.get()
         brand = self._filter_brand.get()
         machine = self._filter_machine.get()
@@ -925,7 +933,57 @@ class OnlineImportWizard(tk.Toplevel):
             filtered = [e for e in filtered if e.nozzle == nozzle]
 
         self._filtered_catalog = filtered
+        self._cascade_filter_values(mat, brand, machine, nozzle)
         self._render_browse_list(filtered)
+
+    def _cascade_filter_values(
+        self, mat: str, brand: str, machine: str, nozzle: str
+    ) -> None:
+        """Update dropdown values to reflect available options given other filters."""
+        catalog = self._catalog
+
+        def _vals(entries: list, attr: str) -> list[str]:
+            return sorted(set(getattr(e, attr) for e in entries if getattr(e, attr)))
+
+        # Material: filter by brand, machine, nozzle
+        filt = catalog
+        if brand != "All":
+            filt = [e for e in filt if e.brand == brand]
+        if machine != "All":
+            filt = [e for e in filt if e.printer == machine]
+        if nozzle != "All":
+            filt = [e for e in filt if e.nozzle == nozzle]
+        self._mat_combo["values"] = ["All"] + _vals(filt, "material")
+
+        # Brand
+        filt = catalog
+        if mat != "All":
+            filt = [e for e in filt if e.material == mat]
+        if machine != "All":
+            filt = [e for e in filt if e.printer == machine]
+        if nozzle != "All":
+            filt = [e for e in filt if e.nozzle == nozzle]
+        self._brand_combo["values"] = ["All"] + _vals(filt, "brand")
+
+        # Machine
+        filt = catalog
+        if mat != "All":
+            filt = [e for e in filt if e.material == mat]
+        if brand != "All":
+            filt = [e for e in filt if e.brand == brand]
+        if nozzle != "All":
+            filt = [e for e in filt if e.nozzle == nozzle]
+        self._machine_combo["values"] = ["All"] + _vals(filt, "printer")
+
+        # Nozzle
+        filt = catalog
+        if mat != "All":
+            filt = [e for e in filt if e.material == mat]
+        if brand != "All":
+            filt = [e for e in filt if e.brand == brand]
+        if machine != "All":
+            filt = [e for e in filt if e.printer == machine]
+        self._nozzle_combo["values"] = ["All"] + _vals(filt, "nozzle")
 
     _MAX_VISIBLE_ROWS = 200  # Cap rendered rows to avoid widget explosion
 
@@ -967,6 +1025,7 @@ class OnlineImportWizard(tk.Toplevel):
 
             cb = tk.Checkbutton(
                 row,
+                text=entry.name,
                 variable=var,
                 bg=bg,
                 fg=theme.fg,
@@ -974,21 +1033,16 @@ class OnlineImportWizard(tk.Toplevel):
                 activebackground=bg,
                 activeforeground=theme.fg,
                 highlightthickness=0,
-                command=lambda e=entry, v=var: setattr(e, "selected", v.get()),
-            )
-            cb.pack(side="left", padx=(8, 4), pady=4)
-
-            # Name and description
-            text_frame = tk.Frame(row, bg=bg)
-            text_frame.pack(side="left", fill="x", expand=True, pady=4)
-            tk.Label(
-                text_frame,
-                text=entry.name,
-                bg=bg,
-                fg=theme.fg,
                 font=(UI_FONT, 12, "bold"),
                 anchor="w",
-            ).pack(anchor="w")
+                wraplength=600,
+                command=lambda e=entry, v=var: setattr(e, "selected", v.get()),
+            )
+            cb.pack(side="left", padx=(8, 4), pady=4, fill="x", expand=True)
+
+            # Detail line
+            text_frame = tk.Frame(row, bg=bg)
+            text_frame.pack(side="left", fill="x", expand=True, pady=4)
             detail_parts = []
             if entry.material:
                 detail_parts.append(entry.material)
@@ -1051,17 +1105,25 @@ class OnlineImportWizard(tk.Toplevel):
             self._render_batch(entries, start)
 
     def _select_all_browse(self) -> None:
-        # Mark all filtered entries (including non-rendered ones)
-        for entry in getattr(self, "_all_filtered_entries", []):
+        entries = getattr(self, "_all_filtered_entries", [])
+        for entry in entries:
             entry.selected = True
-        for var, entry in self._check_vars.values():
+        for var, _entry in self._check_vars.values():
             var.set(True)
+        count = len(entries)
+        rendered = len(self._check_vars)
+        if count > rendered:
+            self._browse_status.set(
+                f"Selected all {count} filtered profiles "
+                f"({count - rendered} beyond visible list)"
+            )
 
     def _deselect_all_browse(self) -> None:
         for entry in getattr(self, "_all_filtered_entries", []):
             entry.selected = False
-        for var, entry in self._check_vars.values():
+        for var, _entry in self._check_vars.values():
             var.set(False)
+        self._browse_status.set(f"{len(self._catalog)} profiles available")
 
     # ── Step 3: Confirm & Import ──
 
@@ -1245,15 +1307,25 @@ class OnlineImportWizard(tk.Toplevel):
                 padx=4,
                 pady=4,
             ).pack(side="left", fill="x", expand=True)
-        # Download status area (at bottom of content)
+        # Download status area with progress bar (#22)
         self._import_status.set("")
+        status_row = tk.Frame(frame, bg=theme.bg)
+        status_row.pack(fill="x", padx=20, pady=(0, 4))
         tk.Label(
-            frame,
+            status_row,
             textvariable=self._import_status,
             bg=theme.bg,
             fg=theme.fg3,
             font=(UI_FONT, 12),
-        ).pack(anchor="w", padx=20, pady=(0, 4))
+        ).pack(anchor="w")
+        self._import_progress = ttk.Progressbar(
+            status_row,
+            orient="horizontal",
+            length=400,
+            mode="determinate",
+            maximum=max(len(final), 1),
+        )
+        self._import_progress.pack(anchor="w", pady=(4, 0))
 
         self._bind_wizard_scroll(canvas)
 
@@ -1295,7 +1367,15 @@ class OnlineImportWizard(tk.Toplevel):
             self._show_step(2)
 
         elif step == 2:
-            # Do the import
+            # Validate custom folder (#21)
+            if self._custom_dir_var.get() and not self._custom_dir_path:
+                messagebox.showwarning(
+                    "No Folder Selected",
+                    'You checked "Custom folder" but didn\'t select a path.\n'
+                    "Click Browse to choose a folder, or uncheck the option.",
+                    parent=self,
+                )
+                return
             self._do_import()
 
     def _on_back(self) -> None:
@@ -1350,21 +1430,35 @@ class OnlineImportWizard(tk.Toplevel):
         self._importing = True
 
         def _download() -> None:
+            import shutil
+
             results = []
             tmp_dirs = []
             errors = []
             saved_dirs = set()
+            written_files = []  # Track for cancel rollback (#13)
             for i, entry in enumerate(entries):
                 if self._cancelled:
-                    import shutil
-
+                    # Roll back files written to target dirs (#13)
+                    for fpath in written_files:
+                        try:
+                            os.unlink(fpath)
+                        except OSError:
+                            pass
                     for td in tmp_dirs:
                         shutil.rmtree(td, ignore_errors=True)
                     return
                 self.after(
                     0,
-                    lambda i=i, n=entry.name: self._import_status.set(
-                        f"Downloading {i+1}/{len(entries)}: {n}"
+                    lambda i=i, n=entry.name: (
+                        self._import_status.set(
+                            f"Downloading {i+1}/{len(entries)}: {n}"
+                        ),
+                        (
+                            self._import_progress.configure(value=i + 1)
+                            if hasattr(self, "_import_progress")
+                            else None
+                        ),
                     ),
                 )
                 try:
@@ -1381,20 +1475,26 @@ class OnlineImportWizard(tk.Toplevel):
                         for tdir in target_dirs:
                             os.makedirs(tdir, exist_ok=True)
                             dest = os.path.realpath(os.path.join(tdir, fname))
+                            # Avoid overwriting existing files (#14)
+                            base_dest, ext_part = os.path.splitext(dest)
+                            counter = 2
+                            while os.path.exists(dest):
+                                dest = f"{base_dest}_{counter}{ext_part}"
+                                counter += 1
+                                if counter > 100:
+                                    raise ValueError(f"Too many collisions: {fname}")
                             if not dest.startswith(os.path.realpath(tdir) + os.sep):
                                 raise ValueError(f"Path traversal blocked: {fname}")
                             with open(dest, "wb") as f:
                                 f.write(data)
+                            written_files.append(dest)
                             saved_dirs.add(tdir)
                             if primary_path is None:
                                 primary_path = dest
 
                         if primary_path:
-                            # Load into app from the first saved location
                             results.append((primary_path, None, provider.name))
                         else:
-                            # No target dirs checked — save to temp for app-only
-                            # Use mkdtemp so the dir persists until load completes
                             tmp_dir = tempfile.mkdtemp(prefix="ppc_import_")
                             tmp_dirs.append(tmp_dir)
                             tmp_path = os.path.join(tmp_dir, fname)
@@ -1437,11 +1537,19 @@ class OnlineImportWizard(tk.Toplevel):
                 )
 
             if results:
+                load_ok = True
                 try:
                     self._load_callback(results)
                 except Exception:
+                    load_ok = False
                     logger.exception("Failed to load imported profiles")
-                if saved_dirs:
+                    messagebox.showwarning(
+                        "Load Error",
+                        "Profiles were downloaded but some failed to load into the app.\n"
+                        "Check the log for details.",
+                        parent=self,
+                    )
+                if saved_dirs and load_ok:
                     dir_list = "\n".join(saved_dirs)
                     messagebox.showinfo(
                         "Import Complete",
