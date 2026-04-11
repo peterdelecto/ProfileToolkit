@@ -973,9 +973,15 @@ class App(tk.Tk):
             )
         if saved_back:
             status += " Saved to slicer — restart to see changes."
-        if dlg.result == "universal":
-            status += " Check print speed and acceleration settings for your printer."
         self._update_status(status)
+        if dlg.result == "universal":
+            messagebox.showwarning(
+                "Review Speed Settings",
+                "These profiles may have speed and acceleration values "
+                "tuned for a different printer.\n\n"
+                "Review the Speed tab before printing.",
+                parent=self,
+            )
 
     def _is_slicer_profile(self, profile: Profile) -> bool:
         """Check if the profile was loaded from a detected slicer directory."""
