@@ -179,7 +179,7 @@ class ProfileListPanel(tk.Frame):
             bd=0,
         )
         self._filter.pack(side="left", fill="x", expand=True, ipady=4)
-        self._filter.insert(0, "Filter...")
+        self._filter.insert(0, "Search profiles\u2026")
         self._filter.configure(fg=theme.placeholder_fg, font=(UI_FONT, 13, "italic"))
         self._filter.bind("<FocusIn>", self._filter_in)
         self._filter.bind("<FocusOut>", self._filter_out)
@@ -230,7 +230,7 @@ class ProfileListPanel(tk.Frame):
             # Set placeholder flag BEFORE inserting text so the trace-triggered
             # _refresh_list sees _placeholder=True and ignores the placeholder string
             self._placeholder = True
-            self._filter.insert(0, "Filter...")
+            self._filter.insert(0, "Search profiles\u2026")
             self._filter.configure(
                 fg=self.theme.placeholder_fg, font=(UI_FONT, 13, "italic")
             )
@@ -287,8 +287,8 @@ class ProfileListPanel(tk.Frame):
         self._col_labels_short = {
             "slicer": "",
             "name": "Name",
-            "manufacturer": "Mfr",
-            "material": "Mat",
+            "manufacturer": "Brand",
+            "material": "Type",
             "printer": "Printer",
             "status": "Status",
         }
