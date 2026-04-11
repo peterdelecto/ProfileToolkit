@@ -97,8 +97,35 @@ class ComparePanel(tk.Frame):
         self._section_widgets: dict[str, tk.Widget] = {}
         self._nav_items: dict[str, tk.Frame] = {}
         self._show_empty = False
+        # Cached row widgets for fast filter toggle (W1 optimization)
+        self._row_cache: dict[str, tk.Widget] = {}  # json_key -> row frame
+        self._row_metadata: dict[str, tuple[str, str]] = (
+            {}
+        )  # json_key -> (section_key, ui_label)
+        self._tab_headers: dict[str, tuple[tk.Widget, tk.Label]] = (
+            {}
+        )  # tab_name -> (frame, badge)
+        self._sec_visible_rows: dict[str, list[str]] = (
+            {}
+        )  # section_key -> [json_key, ...]
+        self._can_fast_filter = False  # True after a full render builds the cache
+
+        # Per-pair state caches: keyed by sorted (source_path_a, source_path_b)
+        self._pair_undo_cache: dict[tuple[str, str], tuple[list, int, Counter]] = {}
+        self._pair_collapse_cache: dict[tuple[str, str], set[str]] = {}
 
         self._show_waiting_ui()
+
+    @staticmethod
+    def _pair_cache_key(a: Any, b: Any) -> tuple[str, str]:
+        """Order-independent stable cache key for a profile pair.
+
+        Uses source_path instead of id() to avoid stale cache hits after GC
+        reuses an object id.
+        """
+        ka = getattr(a, "source_path", "") or str(id(a))
+        kb = getattr(b, "source_path", "") or str(id(b))
+        return (min(ka, kb), max(ka, kb))
 
     def _on_destroy_compare_panel(self, event=None) -> None:
         """Remove StringVar traces to prevent leaks on panel recreation."""
@@ -122,14 +149,67 @@ class ComparePanel(tk.Frame):
             )
             self.show_waiting()
             return
+        if profile_a is profile_b:
+            logger.info("ComparePanel.load: same profile selected twice, ignoring")
+            return
+        # Warn about unsaved changes before switching to different profiles
+        if (
+            self._pending_keys
+            and self._profile_a is not None
+            and (profile_a is not self._profile_a or profile_b is not self._profile_b)
+        ):
+            if not messagebox.askyesno(
+                "Unsaved Changes",
+                f"Discard {len(self._pending_keys)} {'change' if len(self._pending_keys) == 1 else 'changes'}?",
+                parent=self,
+            ):
+                return
         logger.debug("ComparePanel.load: '%s' vs '%s'", profile_a.name, profile_b.name)
+        # Save current state for the outgoing pair (order-independent key)
+        if self._profile_a is not None and self._profile_b is not None:
+            old_key = self._pair_cache_key(self._profile_a, self._profile_b)
+            if self._undo_stack:
+                self._pair_undo_cache[old_key] = (
+                    list(self._undo_stack),
+                    self._pending_count,
+                    Counter(self._pending_keys),
+                )
+            # Always preserve collapse state
+            self._pair_collapse_cache[old_key] = set(self._collapsed_sections)
         self._profile_a = profile_a
         self._profile_b = profile_b
         self._waiting = False
-        self._undo_stack.clear()
-        self._pending_count = 0
-        self._pending_keys = Counter()
-        self._collapsed_sections = set()
+
+        # Update bulk copy button labels with profile names
+        a_short = (
+            (profile_a.name[:15] + "…")
+            if len(profile_a.name or "") > 15
+            else (profile_a.name or "A")
+        )
+        b_short = (
+            (profile_b.name[:15] + "…")
+            if len(profile_b.name or "") > 15
+            else (profile_b.name or "B")
+        )
+        self._copy_all_ba_btn.configure(text=f"Copy {b_short} → {a_short}")
+        self._copy_all_ab_btn.configure(text=f"Copy {a_short} → {b_short}")
+        # Cancel any pending debounced renders from previous session
+        if getattr(self, "_resize_after_id", None):
+            self.after_cancel(self._resize_after_id)
+            self._resize_after_id = None
+        if getattr(self, "_refresh_render_id", None):
+            self.after_cancel(self._refresh_render_id)
+            self._refresh_render_id = None
+        # Restore cached undo state for this pair, or start fresh
+        new_key = self._pair_cache_key(profile_a, profile_b)
+        cached = self._pair_undo_cache.pop(new_key, None)
+        if cached:
+            self._undo_stack, self._pending_count, self._pending_keys = cached
+        else:
+            self._undo_stack.clear()
+            self._pending_count = 0
+            self._pending_keys = Counter()
+        self._collapsed_sections = self._pair_collapse_cache.pop(new_key, set())
         self._filter_mode = "all"
         self._changelog_start = {
             id(profile_a): len(profile_a.changelog),
@@ -152,16 +232,23 @@ class ComparePanel(tk.Frame):
             self._rebuilding = False
 
     def _unbind_shortcuts(self) -> None:
-        """Remove stacked global keyboard bindings."""
+        """Remove global keyboard bindings from toplevel window."""
+        try:
+            top = self.winfo_toplevel()
+        except (tk.TclError, RuntimeError):
+            self._bind_id_ctrl_f = None
+            self._bind_id_key_d = None
+            return
+        _mod = "Command" if _PLATFORM == "Darwin" else "Control"
         if getattr(self, "_bind_id_ctrl_f", None):
             try:
-                self.unbind("<Control-f>", self._bind_id_ctrl_f)
+                top.unbind(f"<{_mod}-f>", self._bind_id_ctrl_f)
             except tk.TclError:
                 pass
             self._bind_id_ctrl_f = None
         if getattr(self, "_bind_id_key_d", None):
             try:
-                self.unbind("<Key-d>", self._bind_id_key_d)
+                top.unbind("<Key-d>", self._bind_id_key_d)
             except tk.TclError:
                 pass
             self._bind_id_key_d = None
@@ -169,6 +256,12 @@ class ComparePanel(tk.Frame):
     def show_waiting(self) -> None:
         """Show the 'select two filament profiles' prompt."""
         self._unbind_shortcuts()
+        if getattr(self, "_resize_after_id", None):
+            self.after_cancel(self._resize_after_id)
+            self._resize_after_id = None
+        if getattr(self, "_refresh_render_id", None):
+            self.after_cancel(self._refresh_render_id)
+            self._refresh_render_id = None
         self._profile_a = None
         self._profile_b = None
         self._waiting = True
@@ -238,7 +331,7 @@ class ComparePanel(tk.Frame):
         ).pack(pady=(6, 10))
         tk.Label(
             container,
-            text="Select two filament profiles\nin the Filament tab, then click Compare Filament.",
+            text="Select two profiles, then click Compare.",
             bg=theme.bg2,
             fg=theme.fg3,
             font=(UI_FONT, 15),
@@ -314,12 +407,12 @@ class ComparePanel(tk.Frame):
         self._build_compare_content(main_container)
         self._build_status_bar()
 
-        # Keyboard shortcuts (Tier 2.5) — unbind previous before rebinding
+        # Keyboard shortcuts — unbind previous before rebinding
         self._unbind_shortcuts()
-        self._bind_id_ctrl_f = self.bind_all(
-            "<Control-f>", lambda e: self._focus_search()
-        )
-        self._bind_id_key_d = self.bind_all(
+        _mod = "Command" if _PLATFORM == "Darwin" else "Control"
+        top = self.winfo_toplevel()
+        self._bind_id_ctrl_f = top.bind(f"<{_mod}-f>", lambda e: self._focus_search())
+        self._bind_id_key_d = top.bind(
             "<Key-d>",
             lambda e: self._on_key_d(),
         )
@@ -333,9 +426,13 @@ class ComparePanel(tk.Frame):
         header.pack(fill="x", padx=16, pady=(8, 0))
 
         # Profile names: A (lime) vs B (cyan) with factory badge
+        import tkinter.font as tkfont
+
+        _hdr_font = tkfont.Font(family=UI_FONT, size=14, weight="bold")
+        _hdr_max_px = _hdr_font.measure("W" * 36)  # pixel budget ≈ 36 wide chars
         tk.Label(
             header,
-            text=pa.name,
+            text=self._truncate_name(pa.name, _hdr_max_px, _hdr_font),
             bg=theme.bg,
             fg=theme.accent,
             font=(UI_FONT, 14, "bold"),
@@ -357,7 +454,7 @@ class ComparePanel(tk.Frame):
         ).pack(side="left")
         tk.Label(
             header,
-            text=pb.name,
+            text=self._truncate_name(pb.name, _hdr_max_px, _hdr_font),
             bg=theme.bg,
             fg=self._profile_b_fg,
             font=(UI_FONT, 14, "bold"),
@@ -384,7 +481,7 @@ class ComparePanel(tk.Frame):
         # Right side buttons: Clear | Reset | Save
         _make_btn(
             header,
-            "\u21bb  Clear",
+            "\u2715  Close",
             lambda: self.app._close_compare(),
             bg=theme.bg4,
             fg=theme.btn_fg,
@@ -395,7 +492,7 @@ class ComparePanel(tk.Frame):
 
         self._reset_btn = _make_btn(
             header,
-            "Reset",
+            "Discard Changes",
             self._on_reset,
             bg=theme.bg4,
             fg=theme.btn_fg,
@@ -417,6 +514,33 @@ class ComparePanel(tk.Frame):
         )
         self._save_btn.pack(side="right", padx=(4, 0))
 
+        # Bulk copy buttons
+        self._copy_all_ba_btn = _make_btn(
+            header,
+            "Copy All B \u2192 A",
+            self._copy_all_b_to_a,
+            bg=theme.bg4,
+            fg=self._profile_b_fg,
+            font=(UI_FONT, 13),
+            padx=8,
+            pady=3,
+        )
+        self._copy_all_ba_btn.pack(side="right", padx=(4, 0))
+        _Tooltip(self._copy_all_ba_btn, "Copy all diffs from B to A", theme=theme)
+
+        self._copy_all_ab_btn = _make_btn(
+            header,
+            "Copy All A \u2192 B",
+            self._copy_all_a_to_b,
+            bg=theme.bg4,
+            fg=theme.accent,
+            font=(UI_FONT, 13),
+            padx=8,
+            pady=3,
+        )
+        self._copy_all_ab_btn.pack(side="right", padx=(4, 0))
+        _Tooltip(self._copy_all_ab_btn, "Copy all diffs from A to B", theme=theme)
+
         # Undo / Changelog link
         self._history_label = tk.Label(
             header,
@@ -424,7 +548,7 @@ class ComparePanel(tk.Frame):
             bg=theme.bg,
             fg=theme.modified,
             font=(UI_FONT, 14, "underline"),
-            cursor="hand2",
+            cursor="pointinghand",
         )
         self._history_label.pack(side="right", padx=(0, 8))
         self._history_label.bind("<Button-1>", lambda e: self._show_changelog())
@@ -446,9 +570,9 @@ class ComparePanel(tk.Frame):
 
         for mode, label_text in [
             ("all", " All "),
-            ("diffs", " Diffs "),
+            ("diffs", " Changed "),
             ("missing", " Missing "),
-            ("pending", f" Pending ({len(self._pending_keys)}) "),
+            ("pending", f" Unsaved ({len(self._pending_keys)}) "),
         ]:
             chip = tk.Label(
                 chip_frame,
@@ -458,7 +582,7 @@ class ComparePanel(tk.Frame):
                 font=(UI_FONT, 13),
                 padx=8,
                 pady=2,
-                cursor="hand2",
+                cursor="pointinghand",
                 highlightbackground=theme.border,
                 highlightthickness=1,
             )
@@ -533,7 +657,7 @@ class ComparePanel(tk.Frame):
         self._nav_initial_w = nav_w
 
         self._nav_rail = tk.Frame(main_container, bg=theme.bg)
-        main_container.add(self._nav_rail, minsize=140, width=nav_w, stretch="never")
+        main_container.add(self._nav_rail, minsize=nav_w, width=nav_w, stretch="never")
 
         # Nav rail title
         tk.Label(
@@ -565,10 +689,18 @@ class ComparePanel(tk.Frame):
         main_container.add(content_area, minsize=300, stretch="always")
 
         # ── Column header row ──
-        # Right padx includes ~17px scrollbar compensation so columns
-        # align with the scrollable body below.
+        # Right padx compensates for scrollbar width so columns align
+        # with the scrollable body below. Measure actual scrollbar width.
+        import tkinter.ttk as ttk
+        import tkinter.font as tkfont
+
+        _sb_width = ttk.Style().lookup("TScrollbar", "width") or 17
+        try:
+            _sb_width = int(_sb_width)
+        except (TypeError, ValueError):
+            _sb_width = 17
         col_hdr = tk.Frame(content_area, bg=theme.bg4, height=32)
-        col_hdr.pack(fill="x", padx=(0, 17), pady=(0, 0))
+        col_hdr.pack(fill="x", padx=(0, _sb_width), pady=(0, 0))
         col_hdr.pack_propagate(False)
         # Column proportions: param(45%) | sep | value A(22%) | arrows(6%) | sep | value B(27%)
         # Use pack with proportional relwidth so columns fill the entire content area.
@@ -595,9 +727,11 @@ class ComparePanel(tk.Frame):
         param_hdr.pack(side="left", fill="y")
         param_hdr.bind("<Configure>", lambda e: None)
         tk.Frame(col_hdr, bg=theme.border, width=1).pack(side="left", fill="y")
+        _col_font = tkfont.Font(family=UI_FONT, size=14, weight="bold")
+        _col_max_px = _col_font.measure("W" * 28)
         a_hdr = tk.Label(
             col_hdr,
-            text=self._truncate_name(pa.name, 28),
+            text=self._truncate_name(pa.name, _col_max_px, _col_font),
             bg=theme.bg4,
             fg=theme.accent,
             font=(UI_FONT, 14, "bold"),
@@ -609,7 +743,7 @@ class ComparePanel(tk.Frame):
         tk.Frame(col_hdr, bg=theme.border, width=1).pack(side="left", fill="y")
         b_hdr = tk.Label(
             col_hdr,
-            text=self._truncate_name(pb.name, 28),
+            text=self._truncate_name(pb.name, _col_max_px, _col_font),
             bg=theme.bg4,
             fg=self._profile_b_fg,
             font=(UI_FONT, 14, "bold"),
@@ -780,7 +914,7 @@ class ComparePanel(tk.Frame):
         self._status_pending_label = tk.Label(
             left_status,
             text=(
-                f"{self._pending_count} pending"
+                f"{self._pending_count} unsaved"
                 if self._pending_count > 0
                 else "No changes"
             ),
@@ -789,13 +923,31 @@ class ComparePanel(tk.Frame):
             font=(UI_FONT, 13, pending_weight),
         )
         self._status_pending_label.pack(side="left")
+        tk.Label(
+            left_status,
+            text=" \u2022 ",
+            bg=theme.bg,
+            fg=theme.fg3,
+            font=(UI_FONT, 13),
+        ).pack(side="left")
+        missing_count = getattr(self, "_missing_count", 0)
+        self._status_missing_label = tk.Label(
+            left_status,
+            text=(
+                f"{missing_count} unmatched" if missing_count > 0 else "None unmatched"
+            ),
+            bg=theme.bg,
+            fg=theme.error if missing_count > 0 else theme.fg3,
+            font=(UI_FONT, 13),
+        )
+        self._status_missing_label.pack(side="left")
 
         # Right: active filter
         _filter_label_map = {
-            "diffs": "Differences only",
-            "missing": "Missing values",
+            "diffs": "Changed only",
+            "missing": "Unmatched values",
             "all": "All parameters",
-            "pending": "Pending changes",
+            "pending": "Unsaved changes",
         }
         self._status_filter_label = tk.Label(
             status_inner,
@@ -812,7 +964,7 @@ class ComparePanel(tk.Frame):
         """Change active filter and re-render rows."""
         self._filter_mode = mode
         self._update_chip_styles()
-        self._render_rows()
+        self._refilter_rows()
         self._update_nav_badges()
         self._update_status_bar()
 
@@ -838,7 +990,7 @@ class ComparePanel(tk.Frame):
         # Update pending chip count
         if "pending" in self._chip_labels:
             self._chip_labels["pending"].configure(
-                text=f" Pending ({len(self._pending_keys)}) ",
+                text=f" Unsaved ({len(self._pending_keys)}) ",
             )
 
     # ── Search (Tier 2.2) ───────────────────────────────────────
@@ -873,11 +1025,13 @@ class ComparePanel(tk.Frame):
     def _do_search_render(self) -> None:
         """Deferred search render callback."""
         self._search_after_id = None
-        self._render_rows()
+        self._refilter_rows()
         self._update_nav_badges()
 
     def _focus_search(self) -> None:
-        """Focus the search entry (Ctrl+F)."""
+        """Focus the search entry (Ctrl+F / Cmd+F)."""
+        if getattr(self.app, "_current_tab", "") != "compare":
+            return
         if self._search_entry and self._search_entry.winfo_exists():
             self._search_entry.focus_set()
             if not self._search_placeholder_active:
@@ -885,6 +1039,8 @@ class ComparePanel(tk.Frame):
 
     def _on_key_d(self) -> None:
         """Handle global 'd' key — toggle diff filter unless focus is in a text field."""
+        if getattr(self.app, "_current_tab", "") != "compare":
+            return
         try:
             focused = self.focus_get()
         except (KeyError, tk.TclError):
@@ -905,12 +1061,9 @@ class ComparePanel(tk.Frame):
 
     def _get_search_text(self) -> str:
         """Get active search filter text (empty string if placeholder)."""
-        if self._search_var is None:
+        if self._search_var is None or self._search_placeholder_active:
             return ""
-        txt = self._search_var.get().strip().lower()
-        if txt == "search parameters...":
-            return ""
-        return txt
+        return self._search_var.get().strip().lower()
 
     def _toggle_diff_filter(self) -> None:
         """Toggle between diffs and all filter modes (D key)."""
@@ -927,14 +1080,14 @@ class ComparePanel(tk.Frame):
         self._nav_items = {}
 
         for tab_name, sections in self._layout.items():
-            if not sections:
+            if not sections or tab_name == "Advanced":
                 continue
             for sec_name, params in sections.items():
                 section_key = f"{tab_name}::{sec_name}"
                 diff_count = self._section_diff_count(params) if params else 0
                 has_missing = self._section_has_missing(params) if params else False
 
-                nav_row = tk.Frame(self._nav_rail, bg=theme.bg, cursor="hand2")
+                nav_row = tk.Frame(self._nav_rail, bg=theme.bg, cursor="pointinghand")
                 nav_row.pack(fill="x", pady=1)
 
                 # Left accent border (hidden by default, shown when active)
@@ -993,7 +1146,7 @@ class ComparePanel(tk.Frame):
             return
         theme = self.theme
         for tab_name, sections in self._layout.items():
-            if not sections:
+            if not sections or tab_name == "Advanced":
                 continue
             for sec_name, params in sections.items():
                 section_key = f"{tab_name}::{sec_name}"
@@ -1047,8 +1200,12 @@ class ComparePanel(tk.Frame):
 
     def _on_canvas_configure(self, event: Optional[tk.Event] = None) -> None:
         """Handle canvas resize — debounce re-render and update nav."""
-        if self.winfo_exists():
-            self.after(50, self._update_active_nav)
+        if not self.winfo_exists():
+            return
+        # Skip if compare tab is not active (avoid unnecessary renders)
+        if getattr(self.app, "_current_tab", "") != "compare":
+            return
+        self.after(50, self._update_active_nav)
         w = self._canvas.winfo_width() if self._canvas.winfo_exists() else 0
         if w < 10 or abs(w - self._last_canvas_w) < 10:
             return
@@ -1103,8 +1260,14 @@ class ComparePanel(tk.Frame):
 
     # ── Row rendering ───────────────────────────────────────────
 
+    _RENDER_CHUNK_SIZE = 80  # Rows per render chunk for large profiles
+
     def _render_rows(self) -> None:
         """Render section headers and parameter rows in side-by-side layout."""
+        # Cancel any pending chunked render
+        if getattr(self, "_chunk_render_id", None):
+            self.after_cancel(self._chunk_render_id)
+            self._chunk_render_id = None
         try:
             self.__render_rows_inner()
         except (KeyError, AttributeError, tk.TclError, ValueError) as exc:
@@ -1121,8 +1284,9 @@ class ComparePanel(tk.Frame):
         diff_keys = self._diff_keys
         search_text = self._get_search_text()
 
-        # Compute proportional column pixel widths from canvas width
-        canvas.update_idletasks()
+        # Compute proportional column pixel widths from canvas width.
+        # Avoid update_idletasks() here — it forces a synchronous geometry
+        # pass that can trigger reentrant callbacks. Use cached width instead.
         total_w = max(canvas.winfo_width(), 800)
         self._last_canvas_w = total_w
         r = self._col_ratios
@@ -1143,10 +1307,16 @@ class ComparePanel(tk.Frame):
         # Suppress <Configure> during bulk widget creation (O(n^2) prevention)
         body.unbind("<Configure>")
 
+        self._can_fast_filter = False
         for child in body.winfo_children():
             child.destroy()
 
         self._section_widgets = {}
+        self._row_cache = {}
+        self._row_metadata = {}
+        self._tab_headers = {}
+        self._sec_visible_rows = {}
+        deferred_rows: list[tuple] = []
         row_idx = 0
 
         for tab_name, sections in self._layout.items():
@@ -1218,7 +1388,7 @@ class ComparePanel(tk.Frame):
                 has_missing = self._section_has_missing(params) if params else False
 
                 # Section header (Tier 2.3 collapse + Tier 2.6 enhanced badges)
-                sec_hdr = tk.Frame(body, bg=theme.section_bg, cursor="hand2")
+                sec_hdr = tk.Frame(body, bg=theme.section_bg, cursor="pointinghand")
                 sec_hdr.pack(fill="x", pady=(4, 1))
                 self._section_widgets[section_key] = sec_hdr
 
@@ -1234,7 +1404,7 @@ class ComparePanel(tk.Frame):
                     bg=theme.section_bg,
                     fg=theme.fg3,
                     font=(UI_FONT, 12),
-                    cursor="hand2",
+                    cursor="pointinghand",
                 )
                 chevron_label.pack(side="left", padx=(4, 0))
 
@@ -1247,7 +1417,7 @@ class ComparePanel(tk.Frame):
                     padx=6,
                     pady=3,
                     anchor="w",
-                    cursor="hand2",
+                    cursor="pointinghand",
                 )
                 sec_name_label.pack(side="left")
 
@@ -1292,11 +1462,18 @@ class ComparePanel(tk.Frame):
                 for ch in sec_hdr.winfo_children():
                     bind_scroll(ch, canvas)
 
+                # Build metadata for this section (always, even if collapsed)
+                section_row_keys: list[str] = []
+                for _meta_entry in params or []:
+                    self._row_metadata[_meta_entry[0]] = (section_key, _meta_entry[1])
+                    section_row_keys.append(_meta_entry[0])
+                self._sec_visible_rows[section_key] = section_row_keys
+
                 # Skip params if collapsed (Tier 2.3)
                 if is_collapsed:
                     continue
 
-                # Parameter rows
+                # Parameter rows — collect for chunked rendering
                 for _row_entry in section_visible_rows:
                     json_key, ui_label = _row_entry[0], _row_entry[1]
                     if not self._is_row_visible(
@@ -1309,18 +1486,32 @@ class ComparePanel(tk.Frame):
                     is_missing_a = val_a is None and val_b is not None
                     is_missing_b = val_b is None and val_a is not None
 
-                    self._render_param_row(
-                        body,
-                        canvas,
-                        json_key,
-                        ui_label,
-                        val_a,
-                        val_b,
-                        is_diff,
-                        is_missing_a,
-                        is_missing_b,
-                        row_idx,
-                    )
+                    if row_idx < self._RENDER_CHUNK_SIZE:
+                        self._render_param_row(
+                            body,
+                            canvas,
+                            json_key,
+                            ui_label,
+                            val_a,
+                            val_b,
+                            is_diff,
+                            is_missing_a,
+                            is_missing_b,
+                            row_idx,
+                        )
+                    else:
+                        deferred_rows.append(
+                            (
+                                json_key,
+                                ui_label,
+                                val_a,
+                                val_b,
+                                is_diff,
+                                is_missing_a,
+                                is_missing_b,
+                                row_idx,
+                            )
+                        )
                     row_idx += 1
 
         # ── Uncategorized keys ──
@@ -1337,7 +1528,7 @@ class ComparePanel(tk.Frame):
             tk.Frame(unc_hdr, bg=theme.fg3, width=4).pack(side="left", fill="y")
             tk.Label(
                 unc_hdr,
-                text="  Other (not in standard layout)",
+                text="  Other Parameters",
                 bg=theme.section_bg,
                 fg=theme.fg3,
                 font=(UI_FONT, 15, "bold"),
@@ -1356,18 +1547,32 @@ class ComparePanel(tk.Frame):
                     json_key, json_key, data_a, data_b, diff_keys, search_text
                 ):
                     continue
-                self._render_param_row(
-                    body,
-                    canvas,
-                    json_key,
-                    json_key,
-                    val_a,
-                    val_b,
-                    True,
-                    val_a is None,
-                    val_b is None,
-                    row_idx,
-                )
+                if row_idx < self._RENDER_CHUNK_SIZE:
+                    self._render_param_row(
+                        body,
+                        canvas,
+                        json_key,
+                        json_key,
+                        val_a,
+                        val_b,
+                        True,
+                        val_a is None,
+                        val_b is None,
+                        row_idx,
+                    )
+                else:
+                    deferred_rows.append(
+                        (
+                            json_key,
+                            json_key,
+                            val_a,
+                            val_b,
+                            True,
+                            val_a is None,
+                            val_b is None,
+                            row_idx,
+                        )
+                    )
                 row_idx += 1
 
         bind_scroll(body, canvas)
@@ -1378,6 +1583,86 @@ class ComparePanel(tk.Frame):
             lambda e: canvas.configure(scrollregion=canvas.bbox("all")),
         )
         canvas.configure(scrollregion=canvas.bbox("all"))
+
+        # Schedule deferred rows if any remain beyond the initial chunk
+        if deferred_rows:
+            gen = self._rebuild_generation
+            self._deferred_row_queue = deferred_rows
+            self._chunk_render_id = self.after(
+                1, lambda: self._render_deferred_chunk(body, canvas, gen)
+            )
+        else:
+            self._can_fast_filter = True
+
+    def _render_deferred_chunk(
+        self, body: tk.Widget, canvas: tk.Canvas, gen: int
+    ) -> None:
+        """Render the next chunk of deferred rows (called via after())."""
+        self._chunk_render_id = None
+        if gen != self._rebuild_generation:
+            return  # Stale — a new load/render superseded this
+        queue = getattr(self, "_deferred_row_queue", [])
+        if not queue:
+            self._can_fast_filter = True
+            return
+
+        chunk = queue[: self._RENDER_CHUNK_SIZE]
+        del queue[: self._RENDER_CHUNK_SIZE]
+
+        body.unbind("<Configure>")
+        for args in chunk:
+            self._render_param_row(body, canvas, *args)
+        body.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all")),
+        )
+        canvas.configure(scrollregion=canvas.bbox("all"))
+
+        if queue:
+            self._chunk_render_id = self.after(
+                1, lambda: self._render_deferred_chunk(body, canvas, gen)
+            )
+        else:
+            self._can_fast_filter = True
+            bind_scroll(body, canvas)
+
+    def _refilter_rows(self) -> None:
+        """Fast-path: show/hide cached row widgets without destroying them.
+
+        Only works when _can_fast_filter is True (after a full render).
+        Falls back to full _render_rows() otherwise.
+        """
+        if not self._can_fast_filter or not self._row_cache:
+            self._render_rows()
+            return
+
+        data_a, data_b = self._data_a, self._data_b
+        diff_keys = self._diff_keys
+        search_text = self._get_search_text()
+
+        for json_key, row_widget in self._row_cache.items():
+            meta = self._row_metadata.get(json_key)
+            if not meta:
+                continue
+            section_key, ui_label = meta
+            # Hidden if section is collapsed
+            if section_key in self._collapsed_sections:
+                row_widget.pack_forget()
+                continue
+            if self._is_row_visible(
+                json_key, ui_label, data_a, data_b, diff_keys, search_text
+            ):
+                if not row_widget.winfo_ismapped():
+                    row_widget.pack(fill="x")
+            else:
+                if row_widget.winfo_ismapped():
+                    row_widget.pack_forget()
+
+        # Update scrollregion
+        try:
+            self._canvas.configure(scrollregion=self._canvas.bbox("all"))
+        except tk.TclError:
+            pass
 
     def _is_row_visible(
         self,
@@ -1405,7 +1690,7 @@ class ComparePanel(tk.Frame):
 
         # Filter mode
         mode = self._filter_mode
-        if mode == "diffs" and not is_diff:
+        if mode == "diffs" and not is_diff and json_key not in self._pending_keys:
             return False
         if mode == "missing" and not (is_missing_a or is_missing_b):
             return False
@@ -1452,6 +1737,7 @@ class ComparePanel(tk.Frame):
 
         row = tk.Frame(body, bg=bg)
         row.pack(fill="x")
+        self._row_cache[json_key] = row
 
         # Left border indicator (subtle 4px accent strip for diffs)
         if border_color:
@@ -1558,26 +1844,28 @@ class ComparePanel(tk.Frame):
             )
             va_label.pack(fill="both", expand=True, padx=8)
 
-            # Column 3: Copy arrow A→B
+            # Column 3: Copy arrow A→B (hidden when source value is None —
+            # _copy_a_to_b silently ignores None, so showing the arrow is misleading)
             delta_text = ""
             arrow_ab_cell = tk.Frame(row, bg=bg)
             arrow_ab_cell.grid(row=0, column=3, sticky="nsew")
             if is_diff:
                 delta_text = self._compute_delta(val_a, val_b)
                 key = json_key
-                self._build_copy_arrow(
-                    arrow_ab_cell, key, "\u2192", theme.accent, canvas
-                )
+                if val_a is not None:
+                    self._build_copy_arrow(
+                        arrow_ab_cell, key, "\u2192", theme.accent, canvas
+                    )
 
             # Column 4: Separator
             tk.Frame(row, bg=theme.border, width=cpx["sep"]).grid(
                 row=0, column=4, sticky="ns"
             )
 
-            # Column 5: Copy arrow B→A
+            # Column 5: Copy arrow B→A (hidden when source value is None)
             arrow_ba_cell = tk.Frame(row, bg=bg)
             arrow_ba_cell.grid(row=0, column=5, sticky="nsew")
-            if is_diff:
+            if is_diff and val_b is not None:
                 self._build_copy_arrow(
                     arrow_ba_cell, key, "\u2190", self._profile_b_fg, canvas
                 )
@@ -1682,7 +1970,7 @@ class ComparePanel(tk.Frame):
                 bg=bg,
                 fg=theme.fg3,
                 font=(UI_FONT, 12, "bold"),
-                cursor="hand2",
+                cursor="pointinghand",
             )
             ba_btn.pack(side="right", padx=(8, 0))
             ba_btn.bind("<Button-1>", lambda e, k=key: self._copy_b_to_a(k))
@@ -1690,7 +1978,11 @@ class ComparePanel(tk.Frame):
                 "<Enter>", lambda e, l=ba_btn: l.configure(fg=self._profile_b_fg)
             )
             ba_btn.bind("<Leave>", lambda e, l=ba_btn: l.configure(fg=theme.fg3))
-            _Tooltip(ba_btn, f"Copy to {self._profile_a.name}", theme=theme)
+            _Tooltip(
+                ba_btn,
+                f"Copy {self._profile_b.name} \u2192 {self._profile_a.name}",
+                theme=theme,
+            )
 
             ab_btn = tk.Label(
                 hdr,
@@ -1698,13 +1990,17 @@ class ComparePanel(tk.Frame):
                 bg=bg,
                 fg=theme.fg3,
                 font=(UI_FONT, 12, "bold"),
-                cursor="hand2",
+                cursor="pointinghand",
             )
             ab_btn.pack(side="right", padx=(8, 0))
             ab_btn.bind("<Button-1>", lambda e, k=key: self._copy_a_to_b(k))
             ab_btn.bind("<Enter>", lambda e, l=ab_btn: l.configure(fg=theme.accent))
             ab_btn.bind("<Leave>", lambda e, l=ab_btn: l.configure(fg=theme.fg3))
-            _Tooltip(ab_btn, f"Copy to {self._profile_b.name}", theme=theme)
+            _Tooltip(
+                ab_btn,
+                f"Copy {self._profile_a.name} \u2192 {self._profile_b.name}",
+                theme=theme,
+            )
 
             bind_scroll(ab_btn, canvas)
             bind_scroll(ba_btn, canvas)
@@ -1789,7 +2085,29 @@ class ComparePanel(tk.Frame):
         txt.configure(xscrollcommand=hsb.set)
         hsb.grid(row=1, column=0, sticky="ew")
 
-        bind_scroll(txt, canvas)
+        # Scroll mousewheel within text widget (don't redirect to outer canvas)
+        _is_mac = _PLATFORM == "Darwin"
+
+        def _on_txt_wheel(event: tk.Event) -> str:
+            if _is_mac:
+                txt.yview_scroll(int(-1 * event.delta), "units")
+            else:
+                units = round(-1 * event.delta / _WIN_SCROLL_DELTA_DIVISOR)
+                if units == 0:
+                    units = -1 if event.delta > 0 else 1
+                txt.yview_scroll(units, "units")
+            return "break"
+
+        txt.bind("<MouseWheel>", _on_txt_wheel)
+        if not _is_mac:
+            txt.bind(
+                "<Button-4>",
+                lambda e: (txt.yview_scroll(-3, "units"), "break")[-1],
+            )
+            txt.bind(
+                "<Button-5>",
+                lambda e: (txt.yview_scroll(3, "units"), "break")[-1],
+            )
 
     def _build_copy_arrow(
         self, parent: tk.Frame, key: str, arrow: str, fg_color: str, canvas: tk.Canvas
@@ -1804,7 +2122,7 @@ class ComparePanel(tk.Frame):
             bg=bg,
             fg=fg_color,
             font=(UI_FONT, 14, "bold"),
-            cursor="hand2",
+            cursor="pointinghand",
         )
         btn.pack(fill="both", expand=True)
         if is_left_arrow:
@@ -1827,7 +2145,7 @@ class ComparePanel(tk.Frame):
             return
         new_val = self._data_a.get(json_key)
         old_val = self._data_b.get(json_key)
-        if new_val is None or new_val == old_val:
+        if new_val == old_val:
             return
         was_modified = self._profile_b.modified
 
@@ -1849,12 +2167,11 @@ class ComparePanel(tk.Frame):
 
         # Push to local undo stack and track pending (cap size to prevent memory growth)
         self._undo_stack.append((self._profile_b, json_key, old_val, was_modified))
-        if len(self._undo_stack) > MAX_UNDO_STACK_SIZE:
-            self._undo_stack = self._undo_stack[-MAX_UNDO_STACK_SIZE:]
         self._pending_count += 1
         self._pending_keys[json_key] += 1
+        self._trim_undo_stack()
 
-        self._refresh_diff()
+        self._refresh_diff(debounce_render=True)
         save_profile_state(self._profile_b)
 
     def _copy_b_to_a(self, json_key: str) -> None:
@@ -1863,7 +2180,7 @@ class ComparePanel(tk.Frame):
             return
         new_val = self._data_b.get(json_key)
         old_val = self._data_a.get(json_key)
-        if new_val is None or new_val == old_val:
+        if new_val == old_val:
             return
         was_modified = self._profile_a.modified
 
@@ -1881,20 +2198,163 @@ class ComparePanel(tk.Frame):
         )
 
         self._undo_stack.append((self._profile_a, json_key, old_val, was_modified))
-        if len(self._undo_stack) > MAX_UNDO_STACK_SIZE:
-            self._undo_stack = self._undo_stack[-MAX_UNDO_STACK_SIZE:]
         self._pending_count += 1
         self._pending_keys[json_key] += 1
+        self._trim_undo_stack()
 
+        self._refresh_diff(debounce_render=True)
+        save_profile_state(self._profile_a)
+
+    # ── Bulk copy ───────────────────────────────────────────────
+
+    def _copy_all_a_to_b(self) -> None:
+        """Copy all differing values from Profile A to Profile B."""
+        if not self._diff_keys or not self._profile_b:
+            return
+        count = len(self._diff_keys)
+        if not messagebox.askyesno(
+            f"Copy to {self._profile_b.name}",
+            f"Copy {count} differing {'value' if count == 1 else 'values'} from "
+            f'"{self._profile_a.name}" to "{self._profile_b.name}"?',
+            parent=self,
+        ):
+            return
+        for key in sorted(self._diff_keys):
+            new_val = self._data_a.get(key)
+            old_val = self._data_b.get(key)
+            if new_val == old_val:
+                continue
+            was_modified = self._profile_b.modified
+            snapshot = {key: deepcopy(old_val), "_modified": was_modified}
+            self._profile_b.data[key] = deepcopy(new_val)
+            if self._profile_b.resolved_data:
+                self._profile_b.resolved_data[key] = deepcopy(new_val)
+            self._profile_b.modified = True
+            self._profile_b.log_change(
+                "Compare: bulk copied from A",
+                f'{key}: {old_val} \u2192 {new_val}  (from "{self._profile_a.name}")',
+                snapshot,
+            )
+            self._undo_stack.append((self._profile_b, key, old_val, was_modified))
+            self._pending_count += 1
+            self._pending_keys[key] += 1
+        self._trim_undo_stack()
+        self._refresh_diff()
+        save_profile_state(self._profile_b)
+
+    def _copy_all_b_to_a(self) -> None:
+        """Copy all differing values from Profile B to Profile A."""
+        if not self._diff_keys or not self._profile_a:
+            return
+        count = len(self._diff_keys)
+        if not messagebox.askyesno(
+            f"Copy to {self._profile_a.name}",
+            f"Copy {count} differing {'value' if count == 1 else 'values'} from "
+            f'"{self._profile_b.name}" to "{self._profile_a.name}"?',
+            parent=self,
+        ):
+            return
+        for key in sorted(self._diff_keys):
+            new_val = self._data_b.get(key)
+            old_val = self._data_a.get(key)
+            if new_val == old_val:
+                continue
+            was_modified = self._profile_a.modified
+            snapshot = {key: deepcopy(old_val), "_modified": was_modified}
+            self._profile_a.data[key] = deepcopy(new_val)
+            if self._profile_a.resolved_data:
+                self._profile_a.resolved_data[key] = deepcopy(new_val)
+            self._profile_a.modified = True
+            self._profile_a.log_change(
+                "Compare: bulk copied from B",
+                f'{key}: {old_val} \u2192 {new_val}  (from "{self._profile_b.name}")',
+                snapshot,
+            )
+            self._undo_stack.append((self._profile_a, key, old_val, was_modified))
+            self._pending_count += 1
+            self._pending_keys[key] += 1
+        self._trim_undo_stack()
         self._refresh_diff()
         save_profile_state(self._profile_a)
 
+    # ── Export ──────────────────────────────────────────────────
+
+    def _export_diff(self) -> None:
+        """Export diff results to clipboard or file."""
+        if not self._profile_a or not self._profile_b:
+            return
+        lines = [
+            f"Profile Comparison: {self._profile_a.name} vs {self._profile_b.name}",
+            f"{'Parameter':<40} {'A':>20} {'B':>20}",
+            "-" * 82,
+        ]
+        for key in sorted(self._diff_keys):
+            va = self._data_a.get(key, "(not set)")
+            vb = self._data_b.get(key, "(not set)")
+            va_str = str(va) if va is not None else "(not set)"
+            vb_str = str(vb) if vb is not None else "(not set)"
+            lines.append(f"{key:<40} {va_str:>20} {vb_str:>20}")
+        lines.append(f"\nTotal differences: {len(self._diff_keys)}")
+        text = "\n".join(lines)
+
+        # Copy to clipboard
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(text)
+            messagebox.showinfo(
+                "Exported",
+                f"Copied {len(self._diff_keys)} differences to clipboard.",
+                parent=self,
+            )
+        except tk.TclError:
+            # Fallback: offer file save
+            from tkinter import filedialog
+
+            path = filedialog.asksaveasfilename(
+                defaultextension=".txt",
+                filetypes=[("Text files", "*.txt"), ("CSV", "*.csv")],
+                parent=self,
+            )
+            if path:
+                if path.endswith(".csv"):
+                    import csv
+                    import io
+
+                    buf = io.StringIO()
+                    w = csv.writer(buf)
+                    w.writerow(
+                        ["Parameter", self._profile_a.name, self._profile_b.name]
+                    )
+                    for key in sorted(self._diff_keys):
+                        va = self._data_a.get(key, "")
+                        vb = self._data_b.get(key, "")
+                        w.writerow([key, va, vb])
+                    text = buf.getvalue()
+                with open(path, "w") as f:
+                    f.write(text)
+
     # ── Undo ────────────────────────────────────────────────────
+
+    def _trim_undo_stack(self) -> None:
+        """Cap undo stack size, adjusting _pending_keys for dropped entries."""
+        if len(self._undo_stack) <= MAX_UNDO_STACK_SIZE:
+            return
+        dropped = self._undo_stack[:-MAX_UNDO_STACK_SIZE]
+        self._undo_stack = self._undo_stack[-MAX_UNDO_STACK_SIZE:]
+        for _prof, key, _old, _was in dropped:
+            self._pending_keys[key] -= 1
+            if self._pending_keys[key] <= 0:
+                del self._pending_keys[key]
+            self._pending_count = max(0, self._pending_count - 1)
 
     def _on_undo(self, event: Optional[tk.Event] = None) -> Optional[str]:
         """Undo the last copy operation (Ctrl+Z / Cmd+Z)."""
         if not self._undo_stack:
             return None  # Let other handlers process
+        # Flush any pending debounced render to avoid stale UI after undo
+        if getattr(self, "_refresh_render_id", None):
+            self.after_cancel(self._refresh_render_id)
+            self._refresh_render_id = None
         profile, json_key, old_val, was_modified = self._undo_stack.pop()
 
         # Restore the value
@@ -1903,8 +2363,11 @@ class ComparePanel(tk.Frame):
             profile.resolved_data[json_key] = deepcopy(old_val)
         profile.modified = was_modified
 
-        # Remove the last changelog entry (the one we just undid)
-        if profile.changelog:
+        # Remove the last changelog entry (the one we just undid), but only
+        # if there are session-appended entries remaining (guards against
+        # partial-save having already cleared them).
+        start = self._changelog_start.get(id(profile), 0)
+        if len(profile.changelog) > start:
             profile.changelog.pop()
 
         self._pending_count = max(0, self._pending_count - 1)
@@ -1938,8 +2401,10 @@ class ComparePanel(tk.Frame):
             modified.append(self._profile_b)
 
         names = " and ".join(p.name for p in modified)
-        msg = f"Save {len(self._pending_keys)} change(s) to {names}?\n\n" + "\n".join(
-            lines[:30]
+        n_changes = len(self._pending_keys)
+        msg = (
+            f"Save {n_changes} {'change' if n_changes == 1 else 'changes'} to {names}?\n\n"
+            + "\n".join(lines[:30])
         )
         if len(lines) > 30:
             msg += f"\n  ... and {len(lines) - 30} more"
@@ -1947,24 +2412,50 @@ class ComparePanel(tk.Frame):
         if not messagebox.askyesno("Save Changes", msg, parent=self):
             return
 
-        # Write back to slicer files
+        # Write back to slicer files — track successes for partial cleanup
+        saved_profiles: set[int] = set()
         for profile in modified:
             try:
                 self.app._save_back_to_slicer(profile)
                 profile.modified = False
-                start = self._changelog_start.get(id(profile), 0)
+                # Delete only session-appended changelog entries (clamp start to
+                # current length so undone entries that were already popped don't
+                # cause an out-of-range slice).
+                start = min(
+                    self._changelog_start.get(id(profile), 0),
+                    len(profile.changelog),
+                )
                 del profile.changelog[start:]
+                # Reset the start index so a subsequent save in the same session
+                # doesn't re-delete from the stale position.
+                self._changelog_start[id(profile)] = len(profile.changelog)
+                saved_profiles.add(id(profile))
             except (OSError, PermissionError) as exc:
                 messagebox.showerror(
                     "Save Failed",
                     f"Could not save {profile.name}:\n{exc}",
                     parent=self,
                 )
-                return
+                break
 
-        self._pending_keys.clear()
-        self._pending_count = 0
-        self._undo_stack.clear()
+        if saved_profiles:
+            # Remove undo entries and pending keys only for profiles that saved
+            self._undo_stack = [
+                entry
+                for entry in self._undo_stack
+                if id(entry[0]) not in saved_profiles
+            ]
+            # Rebuild pending_keys from remaining undo entries
+            new_pending: Counter[str] = Counter()
+            for entry in self._undo_stack:
+                new_pending[entry[1]] += 1
+            self._pending_keys = new_pending
+            self._pending_count = sum(new_pending.values())
+
+        if not self._undo_stack:
+            self._pending_keys.clear()
+            self._pending_count = 0
+
         self._refresh_diff()
         self._update_save_reset_state()
 
@@ -1976,19 +2467,23 @@ class ComparePanel(tk.Frame):
         count = len(self._pending_keys)
         if not messagebox.askyesno(
             "Discard Changes",
-            f"Discard {count} pending change(s)?\nThis cannot be undone.",
+            f"Discard {count} unsaved {'change' if count == 1 else 'changes'}?\nThis cannot be undone.",
             parent=self,
         ):
             return
 
-        # Undo all changes in reverse order
+        # Undo all changes in reverse order.
+        # Guard changelog pops: after a partial save some entries may already
+        # have been deleted, so only pop if the changelog is still longer than
+        # it was at session start (i.e. there are session-appended entries).
         while self._undo_stack:
             profile, json_key, old_val, was_modified = self._undo_stack.pop()
             profile.data[json_key] = deepcopy(old_val)
             if profile.resolved_data:
                 profile.resolved_data[json_key] = deepcopy(old_val)
             profile.modified = was_modified
-            if profile.changelog:
+            start = self._changelog_start.get(id(profile), 0)
+            if len(profile.changelog) > start:
                 profile.changelog.pop()
             save_profile_state(profile)
 
@@ -2006,10 +2501,10 @@ class ComparePanel(tk.Frame):
                 self._save_btn.configure(
                     bg=theme.accent,
                     fg=theme.accent_fg,
-                    cursor="hand2",
+                    cursor="pointinghand",
                     state="normal",
                 )
-                self._reset_btn.configure(cursor="hand2", state="normal")
+                self._reset_btn.configure(cursor="pointinghand", state="normal")
             else:
                 self._save_btn.configure(
                     bg=theme.bg4,
@@ -2021,8 +2516,13 @@ class ComparePanel(tk.Frame):
 
     # ── Refresh ─────────────────────────────────────────────────
 
-    def _refresh_diff(self) -> None:
-        """Recompute diff keys, update counters, and re-render."""
+    def _refresh_diff(self, debounce_render: bool = False) -> None:
+        """Recompute diff keys, update counters, and re-render.
+
+        Args:
+            debounce_render: If True, defer _render_rows by 50ms so rapid
+                consecutive copy operations coalesce into a single re-render.
+        """
         data_a = (
             self._profile_a.resolved_data
             if self._profile_a.resolved_data
@@ -2039,6 +2539,9 @@ class ComparePanel(tk.Frame):
         all_keys = (set(data_a.keys()) | set(data_b.keys())) - _IDENTITY_KEYS
         self._diff_keys = {k for k in all_keys if data_a.get(k) != data_b.get(k)}
         self._diff_count = len(self._diff_keys)
+        self._missing_count = sum(
+            1 for k in all_keys if data_a.get(k) is None or data_b.get(k) is None
+        )
 
         if hasattr(self, "_summary_label"):
             self._summary_label.configure(
@@ -2049,6 +2552,16 @@ class ComparePanel(tk.Frame):
         self._update_status_bar()
         self._update_nav_badges()
         self._update_save_reset_state()
+        if debounce_render:
+            if getattr(self, "_refresh_render_id", None):
+                self.after_cancel(self._refresh_render_id)
+            self._refresh_render_id = self.after(50, self._deferred_render_rows)
+        else:
+            self._render_rows()
+
+    def _deferred_render_rows(self) -> None:
+        """Deferred row render callback (debounced from _refresh_diff)."""
+        self._refresh_render_id = None
         self._render_rows()
 
     # ── Status / history helpers ────────────────────────────────
@@ -2064,19 +2577,25 @@ class ComparePanel(tk.Frame):
             pending_weight = "bold" if self._pending_count > 0 else "normal"
             self._status_pending_label.configure(
                 text=(
-                    f"{self._pending_count} pending"
+                    f"{self._pending_count} unsaved"
                     if self._pending_count > 0
                     else "No changes"
                 ),
                 fg=pending_fg,
                 font=(UI_FONT, 13, pending_weight),
             )
+        if hasattr(self, "_status_missing_label"):
+            mc = getattr(self, "_missing_count", 0)
+            self._status_missing_label.configure(
+                text=f"{mc} unmatched" if mc > 0 else "None unmatched",
+                fg=theme.error if mc > 0 else theme.fg3,
+            )
         if hasattr(self, "_status_filter_label"):
             _filter_label_map = {
-                "diffs": "Differences only",
-                "missing": "Missing values",
+                "diffs": "Changed only",
+                "missing": "Unmatched values",
                 "all": "All parameters",
-                "pending": "Pending changes",
+                "pending": "Unsaved changes",
             }
             self._status_filter_label.configure(
                 text=f"Showing: {_filter_label_map.get(self._filter_mode, self._filter_mode)}",
@@ -2110,6 +2629,8 @@ class ComparePanel(tk.Frame):
         dlg.configure(bg=theme.bg)
         dlg.resizable(True, True)
         dlg.transient(self.winfo_toplevel())
+        dlg.geometry("640x480")
+        dlg.minsize(560, 360)
 
         tk.Label(
             dlg,
@@ -2207,16 +2728,23 @@ class ComparePanel(tk.Frame):
                 ).pack(side="left", pady=(1, 0))
 
                 if details:
-                    tk.Label(
+                    detail_lbl = tk.Label(
                         row,
                         text=details,
                         bg=theme.bg3,
                         fg=theme.fg2,
                         font=(UI_FONT, 14),
                         anchor="w",
-                        wraplength=420,
                         justify="left",
-                    ).pack(anchor="w", pady=(2, 0))
+                    )
+                    detail_lbl.pack(anchor="w", fill="x", pady=(2, 0))
+                    # Adapt wraplength to available width on resize
+                    detail_lbl.bind(
+                        "<Configure>",
+                        lambda e, lbl=detail_lbl: lbl.configure(
+                            wraplength=max(100, e.width - 10)
+                        ),
+                    )
 
                 # Undo button — only for the most recent entry of that profile
                 if has_snapshot and real_idx == len(profile.changelog) - 1:
@@ -2227,7 +2755,10 @@ class ComparePanel(tk.Frame):
                         p.restore_snapshot(idx)
                         # Also pop from local undo stack if it matches
                         if self._undo_stack and self._undo_stack[-1][0] is p:
-                            self._undo_stack.pop()
+                            _, undo_key, _, _ = self._undo_stack.pop()
+                            self._pending_keys[undo_key] -= 1
+                            if self._pending_keys[undo_key] <= 0:
+                                del self._pending_keys[undo_key]
                         self._pending_count = max(0, self._pending_count - 1)
                         _rebuild_entries()
                         self._refresh_diff()
@@ -2326,5 +2857,15 @@ class ComparePanel(tk.Frame):
         return s
 
     @staticmethod
-    def _truncate_name(name: str, max_len: int) -> str:
+    def _truncate_name(name: str, max_len: int, font: Any = None) -> str:
+        """Truncate name to fit within max_len pixels (if font given) or characters."""
+        if font is not None:
+            # Pixel-based truncation using font metrics
+            if font.measure(name) <= max_len:
+                return name
+            ellipsis = "\u2026"
+            for i in range(len(name), 0, -1):
+                if font.measure(name[:i] + ellipsis) <= max_len:
+                    return name[:i] + ellipsis
+            return ellipsis
         return name if len(name) <= max_len else name[: max_len - 1] + "\u2026"
