@@ -2611,7 +2611,7 @@ class ComparePanel(tk.Frame):
         if self._profile_b:
             total += len(self._profile_b.changelog)
         if total > 0:
-            self._history_label.configure(text=f"\u00b7  Undo / Changelog ({total})")
+            self._history_label.configure(text=f"\u00b7  Change History ({total})")
         else:
             self._history_label.configure(text="")
 
@@ -2625,7 +2625,7 @@ class ComparePanel(tk.Frame):
             return
 
         dlg = tk.Toplevel(self)
-        dlg.title("Compare — Undo / Changelog")
+        dlg.title("Compare — Change History")
         dlg.configure(bg=theme.bg)
         dlg.resizable(True, True)
         dlg.transient(self.winfo_toplevel())
@@ -2634,7 +2634,7 @@ class ComparePanel(tk.Frame):
 
         tk.Label(
             dlg,
-            text="Undo / Changelog",
+            text="Change History",
             bg=theme.bg,
             fg=theme.fg,
             font=(UI_FONT, 14, "bold"),

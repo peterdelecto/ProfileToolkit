@@ -945,7 +945,7 @@ class ProfileListPanel(tk.Frame):
             p = sel_profiles[0]
             hist_n = len(p.changelog) if p.changelog else 0
             menu.add_command(
-                label=f"Undo / Changelog ({hist_n})",
+                label=f"Change History ({hist_n} changes)",
                 command=lambda p=p: self.detail._show_changelog(p),
             )
 

@@ -425,7 +425,7 @@ class ProfileDetailPanel(tk.Frame):
         hist_count = len(profile.changelog) if profile.changelog else 0
         hist_lbl = tk.Label(
             row2,
-            text=f"  \u00b7  Undo / Changelog ({hist_count})",
+            text=f"  \u00b7  Change History ({hist_count})",
             bg=theme.bg2,
             fg=theme.inherited,
             font=(UI_FONT, 13, "underline"),
@@ -475,7 +475,7 @@ class ProfileDetailPanel(tk.Frame):
         legend.pack(fill="x", pady=(2, 0))
         parts = []
         if has_inherited:
-            parts.append(("\u21b0", theme.inherited, "Inherited"))
+            parts.append(("\u21a9", theme.inherited, "Inherited"))
         if has_recommendations:
             parts.append(("\u25bc", theme.info, "Below recommended"))
             parts.append(("\u25b2", theme.warning, "Above recommended"))
@@ -493,7 +493,7 @@ class ProfileDetailPanel(tk.Frame):
     def _show_changelog(self, profile: Profile) -> None:
         theme = self.theme
         dlg = tk.Toplevel(self)
-        dlg.title(f"Undo / Changelog \u2014 {profile.name}")
+        dlg.title(f"Change History \u2014 {profile.name}")
         dlg.configure(bg=theme.bg)
         dlg.resizable(True, True)
         dlg.transient(self.winfo_toplevel())
@@ -1108,7 +1108,7 @@ class ProfileDetailPanel(tk.Frame):
         if is_inherited:
             inherit_icon = tk.Label(
                 label_frame,
-                text="\u21b0",
+                text="\u21a9",
                 bg=theme.param_bg,
                 fg=theme.inherited,
                 font=(UI_FONT, 12),
