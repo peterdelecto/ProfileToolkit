@@ -316,7 +316,7 @@ class ProfileDetailPanel(tk.Frame):
             n_missing = len(profile._missing_conversion_keys)
             fill_btn = _make_btn(
                 name_row,
-                f"\u24d8 Fill {n_missing} Missing",
+                f"Apply {n_missing} Defaults",
                 self._fill_all_missing,
                 bg=theme.recommended,
                 fg=theme.fg,
