@@ -604,8 +604,16 @@ class App(tk.Tk):
             title="Extract Profiles from 3MF",
             filetypes=[("3MF projects", "*.3mf"), ("All", "*.*")],
         )
-        if paths:
-            self._load_files([(p, None, "") for p in paths])
+        if not paths:
+            return
+        before = len(self.filament_panel.profiles)
+        self._load_files([(p, None, "") for p in paths])
+        after = len(self.filament_panel.profiles)
+        if after == before:
+            messagebox.showinfo(
+                "No Filament Profiles Found",
+                "No filament profiles were found in the selected 3MF file(s).",
+            )
 
     def _safe_after(self, ms: int, func: callable) -> None:
         """Schedule a callback only if the window still exists (prevents TclError on exit)."""

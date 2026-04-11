@@ -7,214 +7,200 @@ import urllib.error
 from typing import Callable, Optional
 
 from .base import OnlineProvider, OnlineProfileEntry
-from ..utils import guess_material, guess_brand
+from ..utils import guess_material, guess_brand, parse_printer_nozzle
 
 logger = logging.getLogger(__name__)
+
+
+def _make_entry(
+    fname: str,
+    url: str,
+    slicer: str,
+    provider_id: str,
+    description: str,
+    default_brand: str = "",
+) -> OnlineProfileEntry:
+    """Build an OnlineProfileEntry from a filename, parsing @BBL machine/nozzle."""
+    printer, nozzle = "", ""
+    if " @" in fname:
+        display = fname.split(" @", 1)[0]
+        printer, nozzle = parse_printer_nozzle(fname.split(" @", 1)[1])
+    else:
+        display = fname
+    entry = OnlineProfileEntry(
+        name=fname,
+        material=guess_material(fname),
+        brand=guess_brand(fname) or default_brand,
+        printer=printer,
+        slicer=slicer,
+        url=url,
+        description=f"{description} — {display}",
+        provider_id=provider_id,
+    )
+    entry.nozzle = nozzle
+    return entry
 
 
 class SimplyPrintDBProvider(OnlineProvider):
     """SimplyPrint open slicer-profiles-db on GitHub.
 
-    Uses the generated profiles/ directory which aggregates overlays and other
-    data sources into hundreds of ready-to-use filament profiles.
+    Uses git tree API to get the full file listing across all manufacturers.
     """
 
     id = "simplyprint"
     name = "SimplyPrint Slicer DB"
     category = "Community"
-    description = "Open slicer profile database — crowd-sourced filament settings from many brands and materials"
-    website = "https://github.com/SimplyPrint/slicer-profiles-db"
+    description = "Open slicer profile database — crowd-sourced filament settings across many manufacturers"
+    website = "https://github.com/SimplyPrint/slicer-profiles-db/tree/main/profiles"
 
     _API_BASE = "https://api.github.com/repos/SimplyPrint/slicer-profiles-db"
-
-    def _parse_profile_name(self, fname: str) -> tuple[str, str]:
-        """Parse 'Bambu PLA Basic @BBL P1S 0.4 nozzle' style names."""
-        printer = ""
-        if " @" in fname:
-            parts = fname.split(" @", 1)
-            fname_clean = parts[0]
-            printer = parts[1].strip()
-        else:
-            fname_clean = fname
-        return fname_clean, printer
 
     def _fetch_catalog_online(
         self, status_fn: Optional[Callable[[str], None]] = None
     ) -> list[OnlineProfileEntry]:
-        """Fetch profile listings from the generated profiles directory."""
         self._status_fn = status_fn
-        entries = []
-        self._report("Connecting to GitHub (SimplyPrint DB)...")
+        self._report("Fetching SimplyPrint file tree...")
+        repo = "SimplyPrint/slicer-profiles-db"
         try:
-            url = f"{self._API_BASE}/contents/profiles/bambustudio/BBL/filament"
-            items = self._fetch_json(url)
-            self._report("Parsing profile listings...")
-            if not isinstance(items, list):
-                raise RuntimeError(
-                    "Unexpected response from GitHub API (may be rate-limited)"
-                )
-            for item in items:
-                if item.get("type") == "file" and item["name"].endswith(".json"):
-                    url = item.get("download_url", "")
-                    if not url:
-                        continue
-                    raw_name = item["name"].replace(".json", "")
-                    display_name, printer = self._parse_profile_name(raw_name)
-                    entries.append(
-                        OnlineProfileEntry(
-                            name=raw_name,
-                            material=guess_material(raw_name),
-                            brand=guess_brand(raw_name),
-                            printer=printer,
-                            slicer="BambuStudio",
-                            url=url,
-                            description=f"SimplyPrint DB — {display_name}",
-                            provider_id=self.id,
-                        )
-                    )
-            self._report(f"Found {len(entries)} SimplyPrint profiles")
-        except (urllib.error.URLError, urllib.error.HTTPError) as e:
+            url = f"https://api.github.com/repos/{repo}/git/trees/main?recursive=1"
+            data = self._fetch_json(url, timeout=30, max_size=50 * 1024 * 1024)
+            if not isinstance(data, dict) or "tree" not in data:
+                raise RuntimeError("Unexpected git tree response")
+        except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError) as e:
             logger.error("Failed to fetch catalog from %s: %s", self.name, e)
             return []
+
+        entries = []
+        prefix = "profiles/"
+        for node in data["tree"]:
+            if node.get("type") != "blob":
+                continue
+            path = node.get("path", "")
+            if not path.startswith(prefix) or not path.endswith(".json"):
+                continue
+            # Only include filament profiles
+            if "/filament/" not in path:
+                continue
+            # Structure: profiles/bambustudio/MFR/filament/name.json
+            parts = path[len(prefix) :].split("/")
+            slicer = parts[0] if parts else "BambuStudio"
+            mfr = parts[1] if len(parts) > 1 else ""
+            fname = path.rsplit("/", 1)[-1].replace(".json", "")
+            dl_url = f"https://raw.githubusercontent.com/{repo}/main/{path}"
+            entry = _make_entry(fname, dl_url, slicer, self.id, "SimplyPrint DB")
+            if not entry.brand and mfr:
+                entry.brand = mfr
+            entries.append(entry)
+        self._report(f"Found {len(entries)} SimplyPrint profiles")
         return entries
 
 
 class OrcaSlicerLibraryProvider(OnlineProvider):
-    """OrcaSlicer's built-in filament library from GitHub.
+    """OrcaSlicer's built-in filament profiles from GitHub.
 
-    Verified: 700+ JSON filament presets with direct download_url fields.
+    Uses git tree API across all manufacturer subdirectories under
+    resources/profiles/*/filament/ for the complete listing (5000+).
     """
 
     id = "orcalibrary"
     name = "OrcaSlicer Built-in Library"
     category = "Community"
-    description = "Built-in OrcaSlicer filament library — 700+ presets covering most popular brands and materials"
-    website = "https://github.com/SoftFever/OrcaSlicer"
+    description = (
+        "Built-in OrcaSlicer filament library — 5000+ presets across 40+ manufacturers"
+    )
+    website = "https://github.com/OrcaSlicer/OrcaSlicer/tree/main/resources/profiles"
 
-    _API_BASE = "https://api.github.com/repos/SoftFever/OrcaSlicer"
+    _API_BASE = "https://api.github.com/repos/OrcaSlicer/OrcaSlicer"
 
     def _fetch_catalog_online(
         self, status_fn: Optional[Callable[[str], None]] = None
     ) -> list[OnlineProfileEntry]:
-        """Fetch catalog from OrcaSlicer GitHub repository."""
         self._status_fn = status_fn
-        entries = []
-        self._report("Connecting to GitHub (OrcaSlicer)...")
+        self._report("Fetching OrcaSlicer file tree...")
+        repo = "OrcaSlicer/OrcaSlicer"
         try:
-            url = f"{self._API_BASE}/contents/resources/profiles/OrcaFilamentLibrary/filament"
-            items = self._fetch_json(url)
-            self._report("Parsing profile listings...")
-            if not isinstance(items, list):
-                raise RuntimeError(
-                    "Unexpected response from GitHub API (may be rate-limited)"
-                )
-            for item in items:
-                if item.get("type") == "file" and item["name"].endswith(".json"):
-                    url = item.get("download_url", "")
-                    if not url:
-                        continue
-                    fname = item["name"].replace(".json", "")
-                    printer = ""
-                    if " @" in fname:
-                        printer = fname.split(" @", 1)[1].strip()
-                    entries.append(
-                        OnlineProfileEntry(
-                            name=fname,
-                            material=guess_material(fname),
-                            brand=guess_brand(fname),
-                            printer=printer,
-                            slicer="OrcaSlicer",
-                            url=url,
-                            description="OrcaSlicer built-in filament preset",
-                            provider_id=self.id,
-                        )
-                    )
-            self._report(f"Found {len(entries)} OrcaSlicer profiles")
-        except (urllib.error.URLError, urllib.error.HTTPError) as e:
+            # Get full tree — profiles are under resources/profiles/*/filament/
+            url = f"https://api.github.com/repos/{repo}/git/trees/main?recursive=1"
+            data = self._fetch_json(url, timeout=30, max_size=50 * 1024 * 1024)
+            if not isinstance(data, dict) or "tree" not in data:
+                raise RuntimeError("Unexpected git tree response")
+        except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError) as e:
             logger.error("Failed to fetch catalog from %s: %s", self.name, e)
             return []
+
+        entries = []
+        prefix = "resources/profiles/"
+        for node in data["tree"]:
+            if node.get("type") != "blob":
+                continue
+            path = node.get("path", "")
+            if not path.startswith(prefix) or "/filament/" not in path:
+                continue
+            if not path.endswith(".json"):
+                continue
+            fname = path.rsplit("/", 1)[-1].replace(".json", "")
+            # Extract manufacturer from path: resources/profiles/MFR/filament/...
+            parts = path[len(prefix) :].split("/")
+            mfr = parts[0] if parts else ""
+            url = f"https://raw.githubusercontent.com/{repo}/main/{path}"
+            entry = _make_entry(fname, url, "OrcaSlicer", self.id, "OrcaSlicer preset")
+            # Use manufacturer dir as brand if guess_brand didn't find one
+            if not entry.brand and mfr:
+                entry.brand = mfr
+            entries.append(entry)
+        self._report(f"Found {len(entries)} OrcaSlicer profiles")
         return entries
 
 
 class BambuStudioOfficialProvider(OnlineProvider):
-    """BambuStudio's official built-in BBL filament profiles from GitHub."""
+    """BambuStudio's official built-in BBL filament profiles from GitHub.
+
+    Uses git tree API for complete listing (master branch).
+    """
+
+    _DEFAULT_BRANCH = "master"
 
     id = "bambustudio_official"
     name = "BambuStudio Official (BBL)"
     category = "Manufacturer"
-    description = "Default Bambu Lab filament presets shipped with BambuStudio — clean baselines for all BBL materials (200+)"
-    website = "https://github.com/bambulab/BambuStudio"
+    description = "Default Bambu Lab filament presets shipped with BambuStudio"
+    website = "https://github.com/bambulab/BambuStudio/tree/master/resources/profiles"
 
     _API_BASE = "https://api.github.com/repos/bambulab/BambuStudio"
 
     def _fetch_catalog_online(
         self, status_fn: Optional[Callable[[str], None]] = None
     ) -> list[OnlineProfileEntry]:
-        """Fetch official BambuStudio profiles from GitHub."""
         self._status_fn = status_fn
-        entries = []
-        self._report("Connecting to GitHub (BambuStudio official)...")
+        self._report("Fetching BambuStudio file tree...")
         try:
-            url = f"{self._API_BASE}/contents/resources/profiles/BBL/filament"
-            items = self._fetch_json(url)
-            if not isinstance(items, list):
-                raise RuntimeError("Unexpected response from GitHub API")
-            self._report(f"Found {len(items)} items, scanning...")
-            for item in items:
-                if item.get("type") == "dir":
-                    self._report(f"Scanning {item['name']}...")
-                    try:
-                        sub_items = self._fetch_json(item["url"])
-                        if isinstance(sub_items, list):
-                            for sub in sub_items:
-                                if sub.get("type") == "file" and sub["name"].endswith(
-                                    ".json"
-                                ):
-                                    sub_url = sub.get("download_url", "")
-                                    if not sub_url:
-                                        continue
-                                    fname = sub["name"].replace(".json", "")
-                                    printer = ""
-                                    if " @" in fname:
-                                        printer = fname.split(" @", 1)[1].strip()
-                                    entries.append(
-                                        OnlineProfileEntry(
-                                            name=fname,
-                                            material=guess_material(fname),
-                                            brand=guess_brand(fname) or "Bambu",
-                                            printer=printer,
-                                            slicer="BambuStudio",
-                                            url=sub_url,
-                                            description="BambuStudio official filament preset",
-                                            provider_id=self.id,
-                                        )
-                                    )
-                    except (urllib.error.URLError, urllib.error.HTTPError) as e:
-                        logger.error(
-                            "Failed to fetch catalog from %s: %s", self.name, e
-                        )
-                elif item.get("type") == "file" and item["name"].endswith(".json"):
-                    item_url = item.get("download_url", "")
-                    if not item_url:
-                        continue
-                    fname = item["name"].replace(".json", "")
-                    printer = ""
-                    if " @" in fname:
-                        printer = fname.split(" @", 1)[1].strip()
-                    entries.append(
-                        OnlineProfileEntry(
-                            name=fname,
-                            material=guess_material(fname),
-                            brand=guess_brand(fname) or "Bambu",
-                            printer=printer,
-                            slicer="BambuStudio",
-                            url=item_url,
-                            description="BambuStudio official filament preset",
-                            provider_id=self.id,
-                        )
-                    )
-            self._report(f"Found {len(entries)} BambuStudio official profiles")
-        except (urllib.error.URLError, urllib.error.HTTPError) as e:
+            nodes = self._fetch_git_tree(
+                "bambulab/BambuStudio",
+                "resources/profiles/BBL/filament",
+                branch="master",
+            )
+        except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError) as e:
             logger.error("Failed to fetch catalog from %s: %s", self.name, e)
             return []
+
+        entries = []
+        for node in nodes:
+            path = node["path"]
+            if not path.endswith(".json"):
+                continue
+            fname = path.rsplit("/", 1)[-1].replace(".json", "")
+            url = (
+                f"https://raw.githubusercontent.com/bambulab/BambuStudio/master/{path}"
+            )
+            entries.append(
+                _make_entry(
+                    fname,
+                    url,
+                    "BambuStudio",
+                    self.id,
+                    "BambuStudio official",
+                    default_brand="Bambu",
+                )
+            )
+        self._report(f"Found {len(entries)} BambuStudio official profiles")
         return entries

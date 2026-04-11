@@ -55,6 +55,7 @@ class OnlineProfileEntry:
         self.material = material
         self.brand = brand
         self.printer = printer
+        self.nozzle = ""
         self.slicer = slicer
         self.url = url
         self.description = description
@@ -78,10 +79,97 @@ class OnlineProvider:
         False  # class-level: set True when SSL verification disabled
     )
 
+    _DEFAULT_BRANCH: str = "main"  # override to "master" for repos using it
+
+    _CATALOG_CACHE_TTL = 24 * 3600  # 24 hours
+
     def __init__(self) -> None:
         self._status_fn: Optional[Callable[[str], None]] = None
         self._cancel_check: Optional[Callable[[], bool]] = None
         self._ssl_degraded: bool = False
+
+    def clear_cache(self) -> None:
+        """Clear any cached data so the next fetch is fresh. Override in subclass."""
+        cache_path = self._catalog_cache_path()
+        if cache_path.exists():
+            cache_path.unlink(missing_ok=True)
+
+    @classmethod
+    def _cache_dir(cls) -> Path:
+        """Return writable cache directory for catalog data."""
+        if sys.platform == "darwin":
+            d = Path.home() / "Library" / "Caches" / "ProfileToolkit"
+        elif sys.platform == "win32":
+            d = (
+                Path(os.environ.get("LOCALAPPDATA", Path.home()))
+                / "ProfileToolkit"
+                / "cache"
+            )
+        else:
+            d = Path.home() / ".cache" / "ProfileToolkit"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _catalog_cache_path(self) -> Path:
+        return self._cache_dir() / f"catalog_{self.id}.json"
+
+    def _save_catalog_cache(self, entries: list[OnlineProfileEntry]) -> None:
+        """Save catalog to disk cache."""
+        import time
+
+        data = {
+            "timestamp": time.time(),
+            "entries": [
+                {
+                    "name": e.name,
+                    "material": e.material,
+                    "brand": e.brand,
+                    "printer": e.printer,
+                    "nozzle": e.nozzle,
+                    "slicer": e.slicer,
+                    "url": e.url,
+                    "description": e.description,
+                    "provider_id": e.provider_id,
+                    "metadata": e.metadata,
+                }
+                for e in entries
+            ],
+        }
+        try:
+            self._catalog_cache_path().write_text(json.dumps(data), encoding="utf-8")
+        except OSError:
+            pass
+
+    def _load_catalog_cache(self) -> Optional[list[OnlineProfileEntry]]:
+        """Load catalog from disk cache if fresh enough."""
+        import time
+
+        path = self._catalog_cache_path()
+        if not path.exists():
+            return None
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            age = time.time() - data.get("timestamp", 0)
+            if age > self._CATALOG_CACHE_TTL:
+                return None
+            entries = []
+            for d in data.get("entries", []):
+                e = OnlineProfileEntry(
+                    name=d["name"],
+                    material=d.get("material", ""),
+                    brand=d.get("brand", ""),
+                    printer=d.get("printer", ""),
+                    slicer=d.get("slicer", ""),
+                    url=d.get("url", ""),
+                    description=d.get("description", ""),
+                    provider_id=d.get("provider_id", ""),
+                    metadata=d.get("metadata", {}),
+                )
+                e.nozzle = d.get("nozzle", "")
+                entries.append(e)
+            return entries
+        except (OSError, json.JSONDecodeError, KeyError):
+            return None
 
     # ------------------------------------------------------------------
     # Bundled-profile support
@@ -174,9 +262,7 @@ class OnlineProvider:
             )
             if not bundled_sha:
                 return False
-            url = (
-                f"https://api.github.com/repos/{owner_repo}/commits?sha=main&per_page=1"
-            )
+            url = f"https://api.github.com/repos/{owner_repo}/commits?sha={self._DEFAULT_BRANCH}&per_page=1"
             req = urllib.request.Request(
                 url,
                 headers={
@@ -195,7 +281,7 @@ class OnlineProvider:
         return False
 
     # ------------------------------------------------------------------
-    # Public API — tries bundle first, falls back to online
+    # Public API — tries online first, falls back to bundle
     # ------------------------------------------------------------------
 
     def fetch_catalog(
@@ -203,14 +289,32 @@ class OnlineProvider:
         status_fn: Optional[Callable[[str], None]] = None,
         cancel_check: Optional[Callable[[], bool]] = None,
     ) -> list[OnlineProfileEntry]:
-        """Return catalog from bundle if available, otherwise fetch online."""
+        """Return catalog: cache → online → bundled fallback."""
         self._status_fn = status_fn
         self._cancel_check = cancel_check
-        bundled = self._bundled_dir()
-        if bundled:
-            self._report(f"Loading {self.name} from bundled profiles...")
-            return self._catalog_from_bundle()
-        return self._fetch_catalog_online(status_fn)
+        try:
+            # 1. Check disk cache (fast, <24h old)
+            cached = self._load_catalog_cache()
+            if cached:
+                self._report(f"Loaded {len(cached)} {self.name} profiles from cache")
+                return cached
+            # 2. Try online (fresh)
+            try:
+                catalog = self._fetch_catalog_online(status_fn)
+                if catalog:
+                    self._save_catalog_cache(catalog)
+                    return catalog
+            except Exception as e:
+                logger.warning("Online fetch failed for %s: %s", self.name, e)
+            # 3. Fall back to bundled profiles (offline)
+            bundled = self._bundled_dir()
+            if bundled:
+                self._report(f"Loading {self.name} from bundled profiles (offline)...")
+                return self._catalog_from_bundle()
+            return []
+        finally:
+            self._status_fn = None
+            self._cancel_check = None
 
     def _fetch_catalog_online(
         self, status_fn: Optional[Callable[[str], None]] = None
@@ -221,30 +325,46 @@ class OnlineProvider:
     _MAX_PROFILE_SIZE = 10 * 1024 * 1024  # 10MB — reject obviously oversized payloads
 
     def download_profile(self, entry: OnlineProfileEntry) -> tuple[bytes, str]:
-        """Download profile from bundle or network.
-
-        Note: No checksum verification — see issue #85.
-        """
+        """Download profile from bundle or network."""
         result = self._download_from_bundle(entry)
         if result:
             data, filename = result
         else:
-            data = self._fetch_url(entry.url)
+            data = self._fetch_url(entry.url, max_size=self._MAX_PROFILE_SIZE)
             filename = self._suggest_filename(entry)
+            # Validate network-downloaded content is well-formed
+            self._validate_profile_content(data, filename)
         if len(data) > self._MAX_PROFILE_SIZE:
             raise ValueError(
                 f"Profile too large ({len(data)} bytes) — rejected for safety"
             )
         return data, filename
 
+    def _validate_profile_content(self, data: bytes, filename: str) -> None:
+        """Validate that profile content is well-formed."""
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            raise ValueError(f"Profile is not valid UTF-8 text: {filename}")
+        lower = filename.lower()
+        if lower.endswith(".json") or lower.endswith(".bbsflmt"):
+            try:
+                json.loads(text)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Profile is not valid JSON: {filename}: {e}")
+
     def _suggest_filename(self, entry: OnlineProfileEntry) -> str:
         """Generate a safe filename from the entry."""
         url_path = entry.url.split("?")[0].split("#")[0]
-        ext = ".bbsflmt" if url_path.endswith(".bbsflmt") else ".json"
-        safe_name = Path(
-            entry.name.replace(" ", "_").replace("/", "-").replace("\\", "-")
-        ).name
-        safe_name = safe_name.lstrip(".").replace("\x00", "")[:200]
+        if url_path.endswith(".bbsflmt"):
+            ext = ".bbsflmt"
+        elif url_path.endswith(".ini"):
+            ext = ".ini"
+        else:
+            ext = ".json"
+        # Sanitize: replace spaces, path seps, and Windows-illegal characters
+        safe_name = re.sub(r'[\x00-\x1f<>:"/\\|?*]', "_", entry.name.replace(" ", "_"))
+        safe_name = Path(safe_name).name.lstrip(".")[:200]
         return safe_name + ext
 
     def _report(self, msg: str) -> None:
@@ -303,20 +423,26 @@ class OnlineProvider:
         cls._ssl_degraded_flag = True
         return ctx
 
+    @classmethod
+    def ssl_is_degraded(cls) -> bool:
+        """Return True if SSL verification is disabled (MITM vulnerability)."""
+        return cls._ssl_degraded_flag
+
     def _fetch_url(
         self,
         url: str,
         timeout: int = 15,
         cancel_check: Optional[Callable[[], bool]] = None,
+        max_size: int = 0,
     ) -> bytes:
-        """Fetch URL and return bytes (max 50MB).
+        """Fetch URL and return bytes.
 
         Reads in 64KB chunks to release the GIL regularly and allow
         cancellation checks between chunks.
         """
         import time
 
-        _MAX = 50 * 1024 * 1024
+        _MAX = max_size or (50 * 1024 * 1024)
         _CHUNK = 64 * 1024
         # Encode spaces and special chars in URL path (GitHub download_urls
         # often contain unencoded spaces and '+' characters)
@@ -327,6 +453,8 @@ class OnlineProvider:
             self._ssl_degraded = True
         with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
             total = int(resp.headers.get("Content-Length", 0) or 0)
+            if total > _MAX:
+                raise ValueError(f"Response too large ({total} bytes, limit {_MAX})")
             chunks: list[bytes] = []
             received = 0
             while True:
@@ -347,24 +475,71 @@ class OnlineProvider:
                 time.sleep(0)
             return b"".join(chunks)
 
-    def _fetch_json(self, url: str, timeout: int = 15) -> dict | list:
-        """Fetch URL and parse as JSON (max 10MB)."""
-        req = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": HTTP_USER_AGENT,
-                "Accept": "application/vnd.github.v3+json",
-            },
+    def _fetch_git_tree(
+        self, owner_repo: str, path_prefix: str, branch: str = "main"
+    ) -> list[dict]:
+        """Fetch full recursive file tree from GitHub, filtered by path prefix.
+
+        Uses /git/trees?recursive=1 which returns all files with no 1000-item cap.
+        Returns list of {path, url} dicts for files matching path_prefix.
+        """
+        url = (
+            f"https://api.github.com/repos/{owner_repo}/git/trees/{branch}?recursive=1"
         )
+        data = self._fetch_json(url, timeout=30, max_size=50 * 1024 * 1024)
+        if not isinstance(data, dict) or "tree" not in data:
+            raise RuntimeError("Unexpected git tree response")
+        if data.get("truncated"):
+            logger.warning(
+                "Git tree truncated for %s/%s — some profiles may be missing",
+                owner_repo,
+                path_prefix,
+            )
+        prefix = path_prefix.rstrip("/") + "/"
+        return [
+            node
+            for node in data["tree"]
+            if node.get("type") == "blob" and node.get("path", "").startswith(prefix)
+        ]
+
+    def _fetch_json(
+        self, url: str, timeout: int = 15, max_size: int = 0, retries: int = 1
+    ) -> dict | list:
+        """Fetch URL and parse as JSON. Retries once on transient errors."""
+        limit = max_size or self._MAX_PROFILE_SIZE
+        req_headers = {
+            "User-Agent": HTTP_USER_AGENT,
+            "Accept": "application/vnd.github.v3+json",
+        }
         ctx = self._get_ssl_ctx()
-        try:
-            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-                raw = resp.read(self._MAX_PROFILE_SIZE + 1)
-                if len(raw) > self._MAX_PROFILE_SIZE:
-                    raise ValueError(f"JSON response too large ({len(raw)} bytes)")
-                return json.loads(raw.decode("utf-8"))
-        except urllib.error.HTTPError as e:
-            if e.code in (403, 429):
-                logger.warning("GitHub API rate limit reached")
-                raise RuntimeError("GitHub API rate limit reached. Try again later.")
-            raise
+        last_err: Exception | None = None
+        for attempt in range(retries + 1):
+            try:
+                req = urllib.request.Request(url, headers=req_headers)
+                with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+                    raw = resp.read(limit + 1)
+                    if len(raw) > limit:
+                        raise ValueError(f"JSON response too large ({len(raw)} bytes)")
+                    return json.loads(raw.decode("utf-8"))
+            except urllib.error.HTTPError as e:
+                if e.code in (403, 429):
+                    logger.warning("GitHub API rate limit reached")
+                    raise RuntimeError(
+                        "GitHub API rate limit reached. Try again later."
+                    )
+                if e.code >= 500 and attempt < retries:
+                    import time as _time
+
+                    _time.sleep(2)
+                    last_err = e
+                    continue
+                raise
+            except (urllib.error.URLError, OSError) as e:
+                if attempt < retries:
+                    import time as _time
+
+                    _time.sleep(2)
+                    last_err = e
+                    continue
+                raise
+        raise last_err  # type: ignore[misc]

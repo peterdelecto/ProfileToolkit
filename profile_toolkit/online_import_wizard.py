@@ -47,6 +47,7 @@ class OnlineImportWizard(tk.Toplevel):
         self.minsize(750, 450)
         self.transient(parent)
         self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", self._on_cancel)
         self.geometry("+%d+%d" % (parent.winfo_rootx() + 60, parent.winfo_rooty() + 40))
 
         self._prefs = load_online_prefs()
@@ -62,6 +63,7 @@ class OnlineImportWizard(tk.Toplevel):
         self._filter_material = tk.StringVar(value="All")
         self._filter_brand = tk.StringVar(value="All")
         self._filter_machine = tk.StringVar(value="All")
+        self._filter_nozzle = tk.StringVar(value="All")
 
         # Style comboboxes for dark theme
         self._style_combos()
@@ -69,9 +71,21 @@ class OnlineImportWizard(tk.Toplevel):
         self._active_canvas = None  # current scrollable canvas for mousewheel
         self._scroll_bind_id = None
         self._fetch_done = threading.Event()  # thread-safe flag for fetch completion
+        self._watchdog_id = None  # after() ID for watchdog cancellation
+        self._fetch_last_activity = 0.0  # heartbeat timestamp for watchdog
 
         self._build_chrome()
         self._show_step(0)
+
+        # Filter change traces (added once here, guarded in _apply_filters)
+        self._filter_material.trace_add("write", lambda *a: self._apply_filters())
+        self._filter_brand.trace_add("write", lambda *a: self._apply_filters())
+        self._filter_machine.trace_add("write", lambda *a: self._apply_filters())
+        self._filter_nozzle.trace_add("write", lambda *a: self._apply_filters())
+
+        # Keyboard shortcuts
+        self.bind("<Return>", lambda e: self._on_next())
+        self.bind("<Escape>", lambda e: self._on_cancel())
 
     def _bind_wizard_scroll(self, canvas: tk.Canvas) -> None:
         # Unbind previous (MouseWheel + Linux Button-4/5)
@@ -370,6 +384,28 @@ class OnlineImportWizard(tk.Toplevel):
 
         self._bind_wizard_scroll(canvas)
 
+        # Store select function for keyboard nav and pre-select last provider
+        self._select_source_fn = _select_source
+        last_pid = self._prefs.get("last_provider", "")
+        if last_pid and last_pid in self._source_rows:
+            _select_source(last_pid)
+
+    def _nav_source(self, delta: int) -> None:
+        """Move source selection up/down by delta."""
+        ids = list(getattr(self, "_source_rows", {}).keys())
+        if not ids:
+            return
+        fn = getattr(self, "_select_source_fn", None)
+        if not fn:
+            return
+        current = self._source_var.get()
+        try:
+            idx = ids.index(current) + delta
+        except ValueError:
+            idx = 0
+        idx = max(0, min(idx, len(ids) - 1))
+        fn(ids[idx])
+
     # ── Step 2: Browse & Select ──
 
     def _build_step_browse(self) -> None:
@@ -390,6 +426,15 @@ class OnlineImportWizard(tk.Toplevel):
         self._build_browse_header(frame, provider)
         self._build_browse_filters(frame)
         self._build_browse_list_container(frame)
+
+        # Reuse catalog if same provider and we already have data (#4)
+        if (
+            self._catalog
+            and self._selected_provider
+            and self._selected_provider.id == provider.id
+        ):
+            self._on_catalog_loaded(self._catalog)
+            return
 
         # Fetch catalog in background thread
         self._catalog = []
@@ -431,9 +476,10 @@ class OnlineImportWizard(tk.Toplevel):
         )
         self._mat_combo.pack(side="left", padx=(0, 12))
 
-        tk.Label(
+        self._brand_label = tk.Label(
             filter_row, text="Brand:", bg=theme.bg, fg=theme.fg2, font=(UI_FONT, 12)
-        ).pack(side="left", padx=(0, 4))
+        )
+        self._brand_label.pack(side="left", padx=(0, 4))
         self._brand_combo = ttk.Combobox(
             filter_row,
             textvariable=self._filter_brand,
@@ -455,12 +501,23 @@ class OnlineImportWizard(tk.Toplevel):
             width=14,
             style="Dark.TCombobox",
         )
-        self._machine_combo.pack(side="left")
+        self._machine_combo.pack(side="left", padx=(0, 12))
 
-        # Bind filter changes
-        self._filter_material.trace_add("write", lambda *a: self._apply_filters())
-        self._filter_brand.trace_add("write", lambda *a: self._apply_filters())
-        self._filter_machine.trace_add("write", lambda *a: self._apply_filters())
+        self._nozzle_label = tk.Label(
+            filter_row, text="Nozzle:", bg=theme.bg, fg=theme.fg2, font=(UI_FONT, 12)
+        )
+        self._nozzle_label.pack(side="left", padx=(0, 4))
+        self._nozzle_combo = ttk.Combobox(
+            filter_row,
+            textvariable=self._filter_nozzle,
+            values=["All"],
+            state="readonly",
+            width=8,
+            style="Dark.TCombobox",
+        )
+        self._nozzle_combo.pack(side="left")
+
+        # Filter traces registered once in __init__ (not here — avoids trace leak)
 
     def _build_browse_list_container(self, frame: tk.Frame) -> None:
         theme = self.theme
@@ -536,16 +593,22 @@ class OnlineImportWizard(tk.Toplevel):
         self._show_pane_status("Fetching catalog...")
 
     def _start_catalog_fetch(self, provider) -> None:
+        import time as _time
+
+        self._fetch_last_activity = _time.time()
+
         def _status_update(msg: str) -> None:
+            import time as _t
+
+            self._fetch_last_activity = _t.time()  # heartbeat
+
             def _update(m: str = msg) -> None:
                 self._browse_status.set(m)
                 if self._fetch_done.is_set():
                     return
-                # Update label in-place if it exists, else rebuild pane
                 lbl = getattr(self, "_pane_status_label", None)
                 if lbl and lbl.winfo_exists():
                     lbl.configure(text=m)
-                    # Switch to determinate mode if progress numbers detected
                     import re as _re
 
                     match = _re.search(r"(\d+)/(\d+)", m)
@@ -567,7 +630,7 @@ class OnlineImportWizard(tk.Toplevel):
                     cancel_check=lambda: self._cancelled or self._fetch_done.is_set(),
                 )
                 if self._fetch_done.is_set() or self._cancelled:
-                    return  # Watchdog already fired or user cancelled
+                    return
                 self._fetch_done.set()
                 self.after(0, lambda: self._on_catalog_loaded(catalog))
             except urllib.error.HTTPError as ex:
@@ -596,16 +659,24 @@ class OnlineImportWizard(tk.Toplevel):
 
         threading.Thread(target=_fetch, daemon=True).start()
 
-        # Watchdog: if fetch hasn't completed in FETCH_TIMEOUT_MS, show timeout error
+        # Heartbeat-based watchdog: re-arms while status updates arrive (#5, #8)
         def _watchdog() -> None:
-            if not self._fetch_done.is_set() and not self._cancelled:
-                self._fetch_done.set()  # Prevent race with late-arriving fetch result
-                self._on_catalog_error(
-                    "Request timed out — check your internet connection "
-                    "or try a different source."
-                )
+            if self._fetch_done.is_set() or self._cancelled:
+                return
+            import time as _t
 
-        self.after(FETCH_TIMEOUT_MS, _watchdog)
+            idle = _t.time() - self._fetch_last_activity
+            if idle < FETCH_TIMEOUT_MS / 1000:
+                remaining = int((FETCH_TIMEOUT_MS / 1000 - idle) * 1000) + 1000
+                self._watchdog_id = self.after(remaining, _watchdog)
+                return
+            self._fetch_done.set()
+            self._on_catalog_error(
+                "Request timed out — check your internet connection "
+                "or try a different source."
+            )
+
+        self._watchdog_id = self.after(FETCH_TIMEOUT_MS, _watchdog)
 
     def _show_pane_status(self, msg: str, icon: Optional[str] = None) -> None:
         theme = self.theme
@@ -645,10 +716,23 @@ class OnlineImportWizard(tk.Toplevel):
         materials = sorted(set(e.material for e in catalog if e.material))
         brands = sorted(set(e.brand for e in catalog if e.brand))
         machines = sorted(set(e.printer for e in catalog if e.printer))
+        nozzles = sorted(set(e.nozzle for e in catalog if e.nozzle))
 
         self._mat_combo["values"] = ["All"] + materials
+        # Hide brand filter if all entries share the same brand
+        if len(brands) <= 1:
+            self._brand_label.pack_forget()
+            self._brand_combo.pack_forget()
+        else:
+            self._brand_label.pack(side="left", padx=(0, 4))
+            self._brand_combo.pack(side="left", padx=(0, 12))
         self._brand_combo["values"] = ["All"] + brands
         self._machine_combo["values"] = ["All"] + machines
+        self._nozzle_combo["values"] = ["All"] + nozzles
+        # Hide nozzle filter if no nozzle data
+        if not nozzles:
+            self._nozzle_label.pack_forget()
+            self._nozzle_combo.pack_forget()
         # Auto-size combobox widths to fit longest value
         for combo, vals in (
             (self._mat_combo, materials),
@@ -658,18 +742,25 @@ class OnlineImportWizard(tk.Toplevel):
             max_len = max((len(v) for v in vals), default=6)
             combo.configure(width=min(max_len + 2, 30))
 
-        # Restore last filters from prefs
-        last_mat = self._prefs.get("last_material", "All")
-        last_brand = self._prefs.get("last_brand", "All")
-        last_machine = self._prefs.get("last_machine", "All")
-        if last_mat in (["All"] + materials):
-            self._filter_material.set(last_mat)
-        if last_brand in (["All"] + brands):
-            self._filter_brand.set(last_brand)
-        if last_machine in (["All"] + machines):
-            self._filter_machine.set(last_machine)
-
-        self._browse_status.set(f"{len(catalog)} profiles available")
+        # Show delta if this was a refresh
+        prev_count = getattr(self, "_prev_catalog_count", None)
+        prev_names = getattr(self, "_prev_catalog_names", None)
+        if prev_count is not None and prev_names is not None:
+            new_names = {e.name for e in catalog}
+            added = len(new_names - prev_names)
+            removed = len(prev_names - new_names)
+            parts = [f"{len(catalog)} profiles available"]
+            if added:
+                parts.append(f"+{added} new")
+            if removed:
+                parts.append(f"-{removed} removed")
+            if not added and not removed:
+                parts.append("no changes")
+            self._browse_status.set("  \u2022  ".join(parts))
+            self._prev_catalog_count = None
+            self._prev_catalog_names = None
+        else:
+            self._browse_status.set(f"{len(catalog)} profiles available")
         self._apply_filters()
 
         # Fire non-blocking freshness check if catalog came from bundle
@@ -721,6 +812,9 @@ class OnlineImportWizard(tk.Toplevel):
         provider = self._selected_provider
         if not provider:
             return
+        provider.clear_cache()
+        self._prev_catalog_count = len(self._catalog)
+        self._prev_catalog_names = {e.name for e in self._catalog}
         self._fetch_done.clear()
         self._browse_status.set("Refreshing from online...")
         self._show_pane_status("Refreshing from online...")
@@ -728,8 +822,15 @@ class OnlineImportWizard(tk.Toplevel):
 
     def _start_catalog_fetch_online(self, provider) -> None:
         """Fetch catalog using the provider's online path (skipping bundle)."""
+        import time as _time
+
+        self._fetch_last_activity = _time.time()
 
         def _status_update(msg: str) -> None:
+            import time as _t
+
+            self._fetch_last_activity = _t.time()
+
             def _update(m: str = msg) -> None:
                 self._browse_status.set(m)
                 if not self._fetch_done.is_set():
@@ -747,6 +848,9 @@ class OnlineImportWizard(tk.Toplevel):
                 )
                 if self._fetch_done.is_set() or self._cancelled:
                     return
+                # Save refreshed catalog to disk cache (#18)
+                if catalog:
+                    provider._save_catalog_cache(catalog)
                 self._fetch_done.set()
                 self.after(0, lambda: self._on_catalog_loaded(catalog))
             except Exception as ex:
@@ -758,16 +862,24 @@ class OnlineImportWizard(tk.Toplevel):
 
         threading.Thread(target=_fetch, daemon=True).start()
 
-        # Watchdog: if fetch hasn't completed in FETCH_TIMEOUT_MS, show timeout
+        # Heartbeat-based watchdog
         def _watchdog() -> None:
-            if not self._fetch_done.is_set() and not self._cancelled:
-                self._fetch_done.set()
-                self._on_catalog_error(
-                    "Request timed out — check your internet connection "
-                    "or try a different source."
-                )
+            if self._fetch_done.is_set() or self._cancelled:
+                return
+            import time as _t
 
-        self.after(FETCH_TIMEOUT_MS, _watchdog)
+            idle = _t.time() - self._fetch_last_activity
+            if idle < FETCH_TIMEOUT_MS / 1000:
+                remaining = int((FETCH_TIMEOUT_MS / 1000 - idle) * 1000) + 1000
+                self._watchdog_id = self.after(remaining, _watchdog)
+                return
+            self._fetch_done.set()
+            self._on_catalog_error(
+                "Request timed out — check your internet connection "
+                "or try a different source."
+            )
+
+        self._watchdog_id = self.after(FETCH_TIMEOUT_MS, _watchdog)
 
     def _on_catalog_error(self, err: str) -> None:
         if self._current_step != 1:
@@ -800,6 +912,7 @@ class OnlineImportWizard(tk.Toplevel):
         mat = self._filter_material.get()
         brand = self._filter_brand.get()
         machine = self._filter_machine.get()
+        nozzle = self._filter_nozzle.get()
 
         filtered = self._catalog
         if mat != "All":
@@ -808,6 +921,8 @@ class OnlineImportWizard(tk.Toplevel):
             filtered = [e for e in filtered if e.brand == brand]
         if machine != "All":
             filtered = [e for e in filtered if e.printer == machine]
+        if nozzle != "All":
+            filtered = [e for e in filtered if e.nozzle == nozzle]
 
         self._filtered_catalog = filtered
         self._render_browse_list(filtered)
@@ -1166,6 +1281,7 @@ class OnlineImportWizard(tk.Toplevel):
             self._prefs["last_material"] = self._filter_material.get()
             self._prefs["last_brand"] = self._filter_brand.get()
             self._prefs["last_machine"] = self._filter_machine.get()
+            self._prefs["last_nozzle"] = self._filter_nozzle.get()
             # Check at least one selected
             selected = [e for e in self._catalog if e.selected]
             if not selected:
@@ -1189,6 +1305,9 @@ class OnlineImportWizard(tk.Toplevel):
             # Signal any in-flight fetch to stop before tearing down its UI
             if not self._fetch_done.is_set():
                 self._fetch_done.set()
+            if self._watchdog_id:
+                self.after_cancel(self._watchdog_id)
+                self._watchdog_id = None
             self._show_step(self._current_step - 1)
 
     def _on_cancel(self) -> None:

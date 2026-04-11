@@ -6,106 +6,91 @@ import logging
 import os
 import re
 import urllib.error
-import urllib.request
 from typing import Callable, Optional
 
 from .base import OnlineProvider, OnlineProfileEntry
-from ..utils import guess_material, guess_brand
+from ..utils import guess_material, guess_brand, parse_printer_nozzle
 
 logger = logging.getLogger(__name__)
 
 
 class PolymakerProvider(OnlineProvider):
-    """Polymaker's official preset library — scraped from their legacy wiki."""
+    """Official Polymaker filament presets from GitHub.
+
+    Repo structure: preset/Material/Brand/Model/Slicer/Preset.json
+    """
 
     id = "polymaker"
     name = "Polymaker"
     category = "Manufacturer"
-    description = "Official Polymaker filament presets — PLA, PETG, ABS, TPU, and specialty blends (30+)"
-    website = "https://wiki.polymaker.com/polymaker-products/printer-profiles"
+    description = "Official Polymaker filament presets — PLA, PETG, ABS, TPU, and specialty blends"
+    website = "https://github.com/Polymaker3D/Polymaker-Preset/tree/main/preset"
 
-    _WIKI_URL = "https://wiki.polymaker.com/polymaker-products/printer-profiles/legacy-profiles-by-material"
-    _BBSFLMT_RE = re.compile(
-        r"(https://3491278982-files\.gitbook\.io/~/files/v0/b/gitbook-x-prod\.appspot\.com"
-        r"/o/spaces%2FCp7LK0pgIUpVwJdO2wqk%2Fuploads%2F[^\"'<>\s]+\.bbsflmt[^\"'<>\s]*)"
-    )
-
-    def _parse_name_from_url(self, url: str) -> str:
-        """Extract profile name from Gitbook URL."""
-        try:
-            part = url.split("%2F")[-1]
-            fname = part.split(".bbsflmt")[0]
-            fname = urllib.request.url2pathname(fname.replace("+", " "))
-            if fname.startswith("Polymaker "):
-                fname = fname[len("Polymaker ") :]
-            return fname
-        except (IndexError, ValueError):
-            return "Unknown Profile"
-
-    def _ensure_alt_media(self, url: str) -> str:
-        """Append ?alt=media to Gitbook URLs for raw file download."""
-        if "alt=media" not in url:
-            sep = "&" if "?" in url else "?"
-            url = url + sep + "alt=media"
-        return url
+    _API_BASE = "https://api.github.com/repos/Polymaker3D/Polymaker-Preset"
 
     def _fetch_catalog_online(
         self, status_fn: Optional[Callable[[str], None]] = None
     ) -> list[OnlineProfileEntry]:
-        """Scrape Polymaker wiki for .bbsflmt download links."""
         self._status_fn = status_fn
-        entries = []
-        self._report("Connecting to Polymaker wiki...")
+        self._report("Fetching Polymaker file tree...")
+        repo = "Polymaker3D/Polymaker-Preset"
         try:
-            html = self._fetch_url(self._WIKI_URL).decode("utf-8", errors="replace")
-            self._report("Scanning for profile downloads...")
-            try:
-                seen = set()
-                for match in self._BBSFLMT_RE.finditer(html):
-                    raw_url = match.group(1)
-                    upload_id = (
-                        raw_url.split("uploads%2F")[-1].split("%2F")[0]
-                        if "uploads%2F" in raw_url
-                        else raw_url
-                    )
-                    if upload_id in seen:
-                        continue
-                    seen.add(upload_id)
-                    url = self._ensure_alt_media(raw_url)
-                    name = self._parse_name_from_url(raw_url)
-                    entries.append(
-                        OnlineProfileEntry(
-                            name=name,
-                            material=guess_material(name),
-                            brand="Polymaker",
-                            printer="",
-                            slicer="BambuStudio",
-                            url=url,
-                            description=f"Polymaker official — {name}",
-                            provider_id=self.id,
-                        )
-                    )
-            except Exception as parse_err:
-                logger.error("Polymaker wiki HTML parsing failed: %s", parse_err)
-                return []
-            self._report(f"Found {len(entries)} Polymaker profiles")
-            if not entries:
-                raise RuntimeError(
-                    "No profiles found on Polymaker wiki — page may have changed"
-                )
-        except (urllib.error.URLError, urllib.error.HTTPError) as e:
+            url = f"https://api.github.com/repos/{repo}/git/trees/main?recursive=1"
+            data = self._fetch_json(url, timeout=30, max_size=50 * 1024 * 1024)
+            if not isinstance(data, dict) or "tree" not in data:
+                raise RuntimeError("Unexpected git tree response")
+        except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError) as e:
             logger.error("Failed to fetch catalog from %s: %s", self.name, e)
             return []
+
+        entries = []
+        prefix = "preset/"
+        for node in data["tree"]:
+            if node.get("type") != "blob":
+                continue
+            path = node.get("path", "")
+            if not path.startswith(prefix) or not path.endswith(".json"):
+                continue
+            # Structure: preset/Material/Brand/Model/Slicer/file.json
+            parts = path[len(prefix) :].split("/")
+            if len(parts) < 5:
+                continue
+            material_dir = parts[0]
+            mfr_brand = parts[1]
+            model = parts[2]
+            slicer = parts[3]
+            fname = parts[-1].replace(".json", "")
+
+            # Expand BBL machine aliases
+            if mfr_brand.upper() == "BBL":
+                printer, nozzle = parse_printer_nozzle(f"BBL {model}")
+            else:
+                printer = f"{mfr_brand} {model}" if model else mfr_brand
+                nozzle = ""
+
+            entry = OnlineProfileEntry(
+                name=fname,
+                material=guess_material(material_dir) or guess_material(fname),
+                brand="Polymaker",
+                printer=printer,
+                slicer=slicer,
+                url=f"https://raw.githubusercontent.com/{repo}/main/{path}",
+                description=f"Polymaker official — {fname}",
+                provider_id=self.id,
+            )
+            entry.nozzle = nozzle
+            entries.append(entry)
+        self._report(f"Found {len(entries)} Polymaker profiles")
         return entries
 
 
 class ColorFabbProvider(OnlineProvider):
-    """colorFabb's official profiles for BambuStudio and OrcaSlicer."""
+    """colorFabb's official profiles for multiple slicers."""
 
     id = "colorfabb"
     name = "colorFabb"
     category = "Manufacturer"
-    description = "Official colorFabb profiles for BambuStudio & OrcaSlicer — HT, nGen, PETG, woodFill, and more (~96)"
+    description = "Official colorFabb profiles — HT, nGen, PETG, woodFill, and more"
     website = "https://github.com/colorfabb/printer-profiles"
 
     _API_BASE = "https://api.github.com/repos/colorfabb/printer-profiles"
@@ -113,45 +98,51 @@ class ColorFabbProvider(OnlineProvider):
     def _fetch_catalog_online(
         self, status_fn: Optional[Callable[[str], None]] = None
     ) -> list[OnlineProfileEntry]:
-        """Fetch profiles from colorFabb GitHub repository."""
+        """Fetch all profiles from colorFabb GitHub using tree API."""
         self._status_fn = status_fn
+        self._report("Fetching colorFabb file tree...")
+        repo = "colorfabb/printer-profiles"
+        try:
+            url = f"https://api.github.com/repos/{repo}/git/trees/main?recursive=1"
+            data = self._fetch_json(url, timeout=30, max_size=50 * 1024 * 1024)
+            if not isinstance(data, dict) or "tree" not in data:
+                raise RuntimeError("Unexpected git tree response")
+        except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError) as e:
+            logger.error("Failed to fetch catalog from %s: %s", self.name, e)
+            return []
+
         entries = []
-        for slicer, slicer_label in [
-            ("BambuStudio", "BambuStudio"),
-            ("OrcaSlicer", "OrcaSlicer"),
-        ]:
-            for ptype in ("filament", "process"):
-                self._report(f"Fetching {slicer_label} {ptype} profiles...")
-                try:
-                    url = f"{self._API_BASE}/contents/{slicer}/{ptype}"
-                    items = self._fetch_json(url)
-                    if not isinstance(items, list):
-                        continue
-                    for item in items:
-                        if item.get("type") == "file" and item["name"].endswith(
-                            ".json"
-                        ):
-                            fname = item["name"].replace(".json", "")
-                            printer = ""
-                            if " @" in fname:
-                                printer = fname.split(" @", 1)[1].strip()
-                            entries.append(
-                                OnlineProfileEntry(
-                                    name=fname,
-                                    material=guess_material(fname),
-                                    brand="colorFabb",
-                                    printer=printer,
-                                    slicer=slicer_label,
-                                    url=item.get("download_url", ""),
-                                    description=f"colorFabb official — {fname}",
-                                    provider_id=self.id,
-                                )
-                            )
-                except (urllib.error.URLError, urllib.error.HTTPError) as e:
-                    logger.error("Failed to fetch catalog from %s: %s", self.name, e)
+        for node in data["tree"]:
+            if node.get("type") != "blob":
+                continue
+            path = node.get("path", "")
+            if not path.endswith(".json"):
+                continue
+            parts = path.split("/")
+            if len(parts) < 3:
+                continue
+            slicer = parts[0]  # BambuStudio, OrcaSlicer, etc.
+            ptype = parts[1]  # filament, process
+            if ptype != "filament":
+                continue
+            fname = parts[-1].replace(".json", "")
+            printer, nozzle = "", ""
+            if " @" in fname:
+                printer, nozzle = parse_printer_nozzle(fname.split(" @", 1)[1])
+            entry = OnlineProfileEntry(
+                name=fname,
+                material=guess_material(fname) if ptype == "filament" else "",
+                brand="colorFabb",
+                printer=printer,
+                slicer=slicer,
+                url=f"https://raw.githubusercontent.com/{repo}/main/{path}",
+                description=f"colorFabb official — {fname}",
+                provider_id=self.id,
+                metadata={"profile_type": ptype},
+            )
+            entry.nozzle = nozzle
+            entries.append(entry)
         self._report(f"Found {len(entries)} colorFabb profiles")
-        if not entries:
-            raise RuntimeError("No profiles found — colorFabb repo may have changed")
         return entries
 
 
@@ -165,12 +156,12 @@ class PrusaResearchProvider(OnlineProvider):
     """
 
     id = "prusaresearch"
-    name = "Prusa (Experimental)"
+    name = "Prusa"
     category = "Manufacturer"
     description = (
         "Official Prusament & generic presets from Prusa's factory bundle (200+)"
     )
-    website = "https://github.com/prusa3d/PrusaSlicer"
+    website = "https://github.com/prusa3d/PrusaSlicer/tree/master/resources/profiles"
 
     _BUNDLE_URL = (
         "https://raw.githubusercontent.com/prusa3d/PrusaSlicer/"
@@ -182,6 +173,10 @@ class PrusaResearchProvider(OnlineProvider):
         self._bundle_lock = __import__("threading").Lock()
         self._cached_raw: bytes | None = None
         self._cached_sections: dict | None = None
+
+    def clear_cache(self) -> None:
+        self._cached_raw = None
+        self._cached_sections = None
 
     def _fetch_bundle_raw(
         self, cancel_check: Callable[[], bool] | None = None
@@ -251,34 +246,10 @@ class PrusaResearchProvider(OnlineProvider):
                 pass
         return self._cached_sections or {}
 
-    _PRINTER_ALIASES = {
-        "PG": "Planetary Gear",
-        "COREONE": "Core One",
-        "XL": "XL",
-        "HT90": "HT90",
-        "MINI": "Mini",
-        "MINI+": "Mini+",
-        "MK2S": "MK2S",
-        "MK2.5": "MK2.5",
-        "MK2.5S": "MK2.5S",
-        "MK3": "MK3",
-        "MK3S": "MK3S",
-        "MK3S+": "MK3S+",
-        "MK3.5": "MK3.5",
-        "MK3.5S": "MK3.5S",
-        "MK4": "MK4",
-        "MK4S": "MK4S",
-    }
-
-    def _expand_printer(self, raw: str) -> str:
-        """Expand printer alias from section name, e.g. 'PG 0.8' → 'MK4/XL 0.8'."""
-        parts = raw.split(None, 1)
-        if not parts:
-            return raw
-        alias = parts[0].upper().replace("@", "")
-        expanded = self._PRINTER_ALIASES.get(alias, parts[0])
-        nozzle = parts[1] if len(parts) > 1 else ""
-        return f"{expanded} {nozzle}".strip()
+    @staticmethod
+    def _parse_printer_nozzle(raw: str) -> tuple[str, str]:
+        """Parse printer alias and nozzle — delegates to shared parser."""
+        return parse_printer_nozzle(raw)
 
     def _extract_brand(self, name: str) -> str:
         """Extract brand from filament section name."""
@@ -310,20 +281,22 @@ class PrusaResearchProvider(OnlineProvider):
             material = guess_material(name) or "Unknown"
             brand = self._extract_brand(name)
             raw_printer = name.split("@", 1)[1].strip() if "@" in name else ""
-            printer = self._expand_printer(raw_printer) if raw_printer else ""
-            entries.append(
-                OnlineProfileEntry(
-                    name=name,
-                    material=material,
-                    brand=brand,
-                    printer=printer,
-                    slicer="PrusaSlicer",
-                    url="",
-                    description=f"PrusaSlicer factory preset — {name}",
-                    provider_id=self.id,
-                    metadata={"bundled": True, "local_path": str(fp)},
-                )
+            printer, nozzle = (
+                self._parse_printer_nozzle(raw_printer) if raw_printer else ("", "")
             )
+            entry = OnlineProfileEntry(
+                name=name,
+                material=material,
+                brand=brand,
+                printer=printer,
+                slicer="PrusaSlicer",
+                url="",
+                description=f"PrusaSlicer factory preset — {name}",
+                provider_id=self.id,
+                metadata={"bundled": True, "local_path": str(fp)},
+            )
+            entry.nozzle = nozzle
+            entries.append(entry)
         self._report(f"Found {len(entries)} bundled Prusa profiles")
         return entries
 
@@ -358,20 +331,22 @@ class PrusaResearchProvider(OnlineProvider):
             material = guess_material(name) or "Unknown"
             brand = self._extract_brand(name)
             raw_printer = name.split("@", 1)[1].strip() if "@" in name else ""
-            printer = self._expand_printer(raw_printer) if raw_printer else ""
-            entries.append(
-                OnlineProfileEntry(
-                    name=name,
-                    material=material,
-                    brand=brand,
-                    printer=printer,
-                    slicer="PrusaSlicer",
-                    url="",
-                    description=f"PrusaSlicer factory preset — {name}",
-                    provider_id=self.id,
-                    metadata={"bundle_name": name},
-                )
+            printer, nozzle = (
+                self._parse_printer_nozzle(raw_printer) if raw_printer else ("", "")
             )
+            entry = OnlineProfileEntry(
+                name=name,
+                material=material,
+                brand=brand,
+                printer=printer,
+                slicer="PrusaSlicer",
+                url="",
+                description=f"PrusaSlicer factory preset — {name}",
+                provider_id=self.id,
+                metadata={"bundle_name": name},
+            )
+            entry.nozzle = nozzle
+            entries.append(entry)
         self._report(f"Found {len(entries)} Prusa filament profiles")
         return entries
 

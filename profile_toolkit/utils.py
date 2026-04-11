@@ -201,3 +201,91 @@ def guess_brand(name: str) -> str:
         if brand.lower() in name.lower():
             return brand
     return ""
+
+
+_MACHINE_ALIASES = {
+    # Bambu Lab
+    "A1": "A1",
+    "A1M": "A1 Mini",
+    "A1 MINI": "A1 Mini",
+    "H2C": "H2C",
+    "H2D": "H2D",
+    "H2DP": "H2D Pro",
+    "H2S": "H2S",
+    "X1C": "X1 Carbon",
+    "X1E": "X1E",
+    "X1": "X1",
+    "P1S": "P1S",
+    "P1P": "P1P",
+    "P2S": "P2S",
+    # Prusa
+    "PG": "Planetary Gear",
+    "PGIS": "Planetary Gear IS",
+    "COREONE": "Core One",
+    "XL": "XL",
+    "XLIS": "XL IS",
+    "HT90": "HT90",
+    "MINI": "Mini",
+    "MINI+": "Mini+",
+    "MINIIS": "Mini IS",
+    "MMU": "Planetary Gear MMU",
+    "MMU1": "MK3 MMU1",
+    "MK2": "MK2",
+    "MK2S": "MK2S",
+    "MK2.5": "MK2.5",
+    "MK2.5S": "MK2.5S",
+    "MK3": "MK3",
+    "MK3S": "MK3S",
+    "MK3S+": "MK3S+",
+    "MK3.5": "MK3.5",
+    "MK3.5S": "MK3.5S",
+    "MK4": "MK4",
+    "MK4S": "MK4S",
+}
+
+
+def parse_printer_nozzle(raw: str) -> tuple[str, str]:
+    """Parse printer + nozzle from '@BBL X1C 0.6 nozzle' or 'COREONE HF0.6' etc.
+
+    Handles BBL, Prusa, and generic formats. Returns (printer, nozzle) tuple.
+    """
+    import re
+
+    s = raw.strip()
+    # Strip leading "@BBL ", "BBL ", "@"
+    for prefix in ("@BBL ", "BBL ", "@"):
+        if s.upper().startswith(prefix):
+            s = s[len(prefix):]
+            break
+
+    # Check if string starts with nozzle spec (HF0.6, 0.8, 0.8 nozzle MINI)
+    m_nozzle_first = re.match(r"^(HF)?(\d+\.\d+)\s*(?:nozzle)?\s*(.*)", s)
+    if m_nozzle_first:
+        nozzle = (m_nozzle_first.group(1) or "") + m_nozzle_first.group(2)
+        remainder = m_nozzle_first.group(3).strip()
+        if remainder:
+            key = remainder.upper()
+            printer = _MACHINE_ALIASES.get(key, remainder)
+        else:
+            printer = "Planetary Gear HF" if m_nozzle_first.group(1) else "Planetary Gear"
+        return printer, nozzle
+
+    # Extract trailing nozzle: "0.4 nozzle", "HF0.6", "0.6"
+    nozzle = ""
+    m = re.search(r"\s+(HF)?(\d+\.\d+)\s*(?:nozzle)?$", s)
+    if m:
+        nozzle = (m.group(1) or "") + m.group(2)
+        s = s[: m.start()].strip()
+    else:
+        # Check for " HF" suffix without digits (Prusa HF variant)
+        if s.upper().endswith(" HF"):
+            s = s[:-3].strip()
+            nozzle = ""
+            key = s.upper()
+            printer = _MACHINE_ALIASES.get(key, s)
+            return printer + " HF", nozzle
+
+    # Expand machine alias
+    key = s.strip().upper()
+    printer = _MACHINE_ALIASES.get(key, s.strip())
+    return printer, nozzle
