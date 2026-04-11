@@ -339,7 +339,7 @@ class ProfileDetailPanel(tk.Frame):
         )
         clear_btn = _make_btn(
             name_row,
-            "Close Compare",
+            "Exit Compare",
             self._on_clear_compare,
             bg=theme.bg4,
             fg=theme.fg2,
@@ -350,6 +350,7 @@ class ProfileDetailPanel(tk.Frame):
             compound="left",
         )
         clear_btn.pack(side="right", pady=(4, 0), padx=(0, 4))
+        _Tooltip(clear_btn, "Return to single-profile view", theme=theme)
 
         # Smart Recommendations button
         rec_btn = _make_btn(
