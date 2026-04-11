@@ -24,7 +24,7 @@ from .constants import (
 )
 from .theme import Theme
 from .models import Profile
-from .utils import detect_material, get_recommendation
+from .utils import detect_material, get_recommendation, user_error
 from .widgets import ScrollableFrame, make_btn as _make_btn, InfoPopup as _InfoPopup
 
 logger = logging.getLogger(__name__)
@@ -54,6 +54,7 @@ class ConvertDetailPanel(tk.Frame):
         self._converted: Optional[Profile] = None
         self._dropped: list[str] = []
         self._missing: list[str] = []
+        self._warnings: list[str] = []
         self._filled: dict[str, Any] = {}  # preview edits, committed on Convert
         self._collapsed: set[str] = set()
         self._row_idx = 0  # alternating row counter
@@ -120,7 +121,7 @@ class ConvertDetailPanel(tk.Frame):
         self._from_combo = ttk.Combobox(
             ctrl_row,
             textvariable=self._from_var,
-            state="disabled",
+            state="readonly",
             width=14,
             font=(UI_FONT, 13),
             style="Param.TCombobox",
@@ -157,7 +158,7 @@ class ConvertDetailPanel(tk.Frame):
 
         self._btn_convert = _make_btn(
             ctrl_row,
-            "Convert",
+            "Convert Selected",
             self._do_convert,
             bg=theme.accent,
             fg=theme.accent_fg,
@@ -188,12 +189,30 @@ class ConvertDetailPanel(tk.Frame):
 
         self._show_idle()
 
+        # #13: Keyboard shortcut — Ctrl/Cmd+Return to convert
+        from .constants import _PLATFORM
+
+        _mod = "Command" if _PLATFORM == "Darwin" else "Control"
+        self.bind_all(
+            f"<{_mod}-Return>",
+            lambda e: (
+                self._do_convert()
+                if getattr(self.app, "_current_tab", "") == "convert"
+                else None
+            ),
+        )
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     def show_profile(self, profile: Profile) -> None:
         """Called by ProfileListPanel._on_select when in convert mode."""
         self._profile = profile
         self._filled.clear()
+
+        # Update convert button with profile name
+        name = profile.name or "Profile"
+        short_name = name[:25] + "…" if len(name) > 25 else name
+        self._btn_convert.configure(text=f"Convert "{short_name}"")
 
         # Update header
         self._lbl_name.configure(text=profile.name or "(unnamed)")
@@ -211,11 +230,14 @@ class ConvertDetailPanel(tk.Frame):
             self._badge_abbr = ""
             self._lbl_badge.pack_forget()
 
-        # Auto-populate From
+        # Auto-populate From and filter To combo (#9: exclude same slicer)
         if origin in _SLICER_NAMES:
             self._from_combo.current(_SLICER_NAMES.index(origin))
+            targets = [s for s in _SLICER_NAMES if s != origin]
+            self._to_combo["values"] = targets
         else:
             self._from_var.set("")
+            self._to_combo["values"] = _SLICER_NAMES
 
         # Refresh preview if target already selected
         if self._target_slicer:
@@ -229,6 +251,7 @@ class ConvertDetailPanel(tk.Frame):
         self._converted = None
         self._filled.clear()
         self._lbl_name.configure(text="")
+        self._btn_convert.configure(text="Convert Selected")
         self._lbl_badge.pack_forget()
         self._from_var.set("")
         self._to_var.set("")
@@ -239,6 +262,17 @@ class ConvertDetailPanel(tk.Frame):
     def _on_target_changed(self, event: Optional[tk.Event] = None) -> None:
         target = self._to_var.get()
         if target and target != self._target_slicer:
+            # #2: Warn before discarding filled values
+            if self._filled:
+                if not messagebox.askyesno(
+                    "Unsaved Changes",
+                    f"Discard {len(self._filled)} filled {'value' if len(self._filled) == 1 else 'values'}?",
+                    parent=self,
+                ):
+                    # Restore combo to previous selection
+                    if self._target_slicer:
+                        self._to_var.set(self._target_slicer)
+                    return
             self._target_slicer = target
             self._filled.clear()
             self._preview_conversion()
@@ -249,16 +283,42 @@ class ConvertDetailPanel(tk.Frame):
         if not self._profile or not self._target_slicer:
             self._show_idle()
             return
-        self._converted, dropped, missing = self._profile.convert_to(
-            self._target_slicer
-        )
+        # #7: Handle conversion errors gracefully
+        try:
+            self._converted, dropped, missing, warnings = self._profile.convert_to(
+                self._target_slicer
+            )
+        except Exception as exc:
+            logger.exception("convert_to() failed: %s", exc)
+            body = self._scroll.body
+            for child in body.winfo_children():
+                child.destroy()
+            theme = self.theme
+            tk.Label(
+                body,
+                text=user_error(
+                    "Could not convert this profile.",
+                    exc,
+                    "The source may be missing required data.",
+                ),
+                bg=theme.bg,
+                fg=theme.error,
+                font=(UI_FONT, 14),
+                wraplength=500,
+            ).pack(pady=40, padx=20)
+            return
         self._dropped = list(dropped)
         self._missing = list(missing)
-        # Re-apply any already-filled values
-        for k, v in self._filled.items():
-            self._converted.data[k] = v
-            if k in self._missing:
-                self._missing.remove(k)
+        self._warnings = list(warnings)
+        # Re-apply any filled values that still exist in the target schema
+        for k, v in list(self._filled.items()):
+            if k in self._converted.data or k in set(self._missing):
+                self._converted.data[k] = v
+                if k in self._missing:
+                    self._missing.remove(k)
+            else:
+                # Stale key from different conversion path — drop it
+                del self._filled[k]
         self._rebuild()
 
     # ── Idle state ────────────────────────────────────────────────────────────
@@ -280,19 +340,41 @@ class ConvertDetailPanel(tk.Frame):
     # ── Full rebuild ──────────────────────────────────────────────────────────
 
     def _rebuild(self, reset_scroll: bool = True) -> None:
-        theme = self.theme
         body = self._scroll.body
         for child in body.winfo_children():
             child.destroy()
 
-        if not self._converted:
+        # #8: Guard against None profile
+        if not self._converted or not self._profile:
             self._show_idle()
             return
 
+        theme = self.theme
         converted_data = self._converted.data
         dropped_set = set(self._dropped)
         missing_set = set(self._missing)
-        material = detect_material(self._profile.data) if self._profile else "General"
+        material = detect_material(self._profile.data)
+
+        # #3/#5/#16: Show conversion warnings as a banner
+        if self._warnings:
+            warn_frame = tk.Frame(body, bg=theme.compare_changed_bg)
+            warn_frame.pack(fill="x", pady=(0, 6))
+            tk.Frame(warn_frame, bg=theme.warning, width=4).place(
+                x=0, y=0, relheight=1.0
+            )
+            for w_msg in self._warnings:
+                tk.Label(
+                    warn_frame,
+                    text=f"\u26a0  {w_msg}",
+                    bg=theme.compare_changed_bg,
+                    fg=theme.fg,
+                    font=(UI_FONT, 13),
+                    anchor="w",
+                    wraplength=600,
+                    justify="left",
+                    padx=12,
+                    pady=4,
+                ).pack(anchor="w")
 
         self._row_idx = 0
         mapped_count = 0
@@ -355,7 +437,7 @@ class ConvertDetailPanel(tk.Frame):
         theme = self.theme
         body = self._scroll.body
 
-        hdr = tk.Frame(body, bg=theme.section_bg, cursor="hand2")
+        hdr = tk.Frame(body, bg=theme.section_bg, cursor="pointinghand")
         hdr.pack(fill="x", pady=(10, 3))
 
         chevron = tk.Label(
@@ -439,7 +521,7 @@ class ConvertDetailPanel(tk.Frame):
             fg=theme.success if edited else theme.fg2,
             font=(UI_FONT, 14),
             anchor="w",
-            cursor="hand2",
+            cursor="pointinghand",
         )
         val_lbl.pack(side="left", fill="x", expand=True)
 
@@ -532,7 +614,7 @@ class ConvertDetailPanel(tk.Frame):
                 bg=bg,
                 fg=theme.success,
                 font=(UI_FONT, 14),
-                cursor="hand2",
+                cursor="pointinghand",
             )
             val_lbl.pack(side="left", fill="x", expand=True)
 
@@ -569,6 +651,14 @@ class ConvertDetailPanel(tk.Frame):
             if prefill:
                 entry.insert(0, prefill)
                 entry.configure(fg=theme.fg3)
+                # #10: "(suggested)" hint next to pre-filled values
+                tk.Label(
+                    val_frame,
+                    text="(recommended default)",
+                    bg=bg,
+                    fg=theme.fg3,
+                    font=(UI_FONT, 11),
+                ).pack(side="left", padx=(4, 0))
                 entry.bind("<FocusIn>", lambda e, ent=entry: ent.configure(fg=theme.fg))
 
             entry.bind(
@@ -607,7 +697,11 @@ class ConvertDetailPanel(tk.Frame):
 
         tk.Label(
             row,
-            text="not applicable",
+            text=(
+                f"No equivalent in {self._target_slicer}"
+                if self._target_slicer
+                else "not applicable"
+            ),
             bg=bg,
             fg=theme.fg3,
             font=(UI_FONT, 13, "italic"),
@@ -633,7 +727,7 @@ class ConvertDetailPanel(tk.Frame):
             bg=bg,
             fg=theme.fg3,
             font=(UI_FONT, 12),
-            cursor="hand2",
+            cursor="pointinghand",
         )
         icon.pack()
         icon.bind("<Enter>", lambda e, w=icon: w.configure(fg=theme.accent))
@@ -649,7 +743,7 @@ class ConvertDetailPanel(tk.Frame):
     # ── Entry commit ──────────────────────────────────────────────────────────
 
     def _commit_entry(self, key: str, entry: tk.Entry) -> None:
-        """Store the entered value in the preview dict without rebuilding."""
+        """Store the entered value in the preview dict and rebuild."""
         if getattr(self, "_edit_cancelled", False):
             self._edit_cancelled = False
             return
@@ -657,60 +751,71 @@ class ConvertDetailPanel(tk.Frame):
         if not val:
             # Cleared — remove from filled
             self._filled.pop(key, None)
+            self._rebuild(reset_scroll=False)
             return
-        # Try numeric conversion, preserving decimal intent
+
+        # #6: Skip phantom edits — don't store if value unchanged
+        original = self._converted.data.get(key) if self._converted else None
+        parsed_val: Any
         try:
             numeric = float(val)
             if "." not in val and numeric == int(numeric):
-                self._filled[key] = int(numeric)
+                parsed_val = int(numeric)
             else:
-                self._filled[key] = numeric
+                parsed_val = numeric
         except ValueError:
-            self._filled[key] = val
+            parsed_val = val
 
-        # Update row visuals in-place (remove warning highlight if missing)
-        val_frame = entry.master  # entry lives inside val_frame
-        row = val_frame.master if val_frame else None  # val_frame lives inside row
-        if row and key in set(self._missing):
-            theme = self.theme
-            bg = theme.param_bg
-            try:
-                row.configure(bg=bg)
-                for child in row.winfo_children():
-                    if isinstance(child, (tk.Label, tk.Frame)):
-                        try:
-                            child.configure(bg=bg)
-                        except tk.TclError:
-                            pass
-                        for grandchild in child.winfo_children():
-                            if isinstance(grandchild, tk.Label):
-                                try:
-                                    grandchild.configure(bg=bg)
-                                except tk.TclError:
-                                    pass
-            except tk.TclError:
-                pass
-            # Rebuild to refresh section header attention badges
+        # #15: Basic temperature range validation
+        key_lower = key.lower()
+        if isinstance(parsed_val, (int, float)):
+            if "temp" in key_lower and not (-50 <= parsed_val <= 500):
+                messagebox.showwarning(
+                    "Value Out of Range",
+                    f"Temperature {parsed_val}°C seems unusual (expected -50 to 500).",
+                    parent=self,
+                )
+            elif (
+                "speed" in key_lower
+                and "fan" in key_lower
+                and not (0 <= parsed_val <= 100)
+            ):
+                messagebox.showwarning(
+                    "Value Out of Range",
+                    f"Fan speed {parsed_val}% seems unusual (expected 0–100).",
+                    parent=self,
+                )
+
+        if original is not None and parsed_val == original:
+            # Value unchanged — don't mark as edited
             self._rebuild(reset_scroll=False)
+            return
+
+        self._filled[key] = parsed_val
+        # #4: Always rebuild to swap entry back to label and refresh badges
+        self._rebuild(reset_scroll=False)
 
     # ── Convert action ────────────────────────────────────────────────────────
 
     def _do_convert(self) -> None:
         if not self._profile or not self._target_slicer:
             messagebox.showwarning(
-                "Incomplete", "Select a profile and target slicer first.", parent=self
+                "Missing Selection",
+                "Select a profile and target slicer first.",
+                parent=self,
             )
             return
 
-        new_profile, _, _ = self._profile.convert_to(self._target_slicer)
+        new_profile, _, _, _ = self._profile.convert_to(self._target_slicer)
 
         # Apply filled values
         for k, v in self._filled.items():
             new_profile.data[k] = v
             new_profile._missing_conversion_keys.discard(k)
 
+        # #12: Name already has old suffix stripped by convert_to; append new one
         short = SLICER_SHORT_LABELS.get(self._target_slicer, self._target_slicer)
-        new_profile.data["name"] = f"{self._profile.name} ({short})"
+        new_profile.data["name"] = f"{new_profile.name} ({short})"
 
         # Add to profile list
         panel = self.app.filament_panel
@@ -728,11 +833,18 @@ class ConvertDetailPanel(tk.Frame):
         self.app._update_status(f"Converted to {short}: {new_profile.name}")
 
     def _do_export(self) -> None:
-        """Placeholder for direct export of the converted profile."""
+        """Export the converted profile directly."""
         if not self._converted:
+            messagebox.showinfo(
+                "Nothing to Export",
+                "Convert a profile first, then export the result.",
+                parent=self,
+            )
             return
-        # Delegate to the app's export flow
-        if hasattr(self.app, "_on_export"):
+        # Export the converted profile, not the list selection
+        if hasattr(self.app, "_export_profiles"):
+            self.app._export_profiles([self._converted])
+        elif hasattr(self.app, "_on_export"):
             self.app._on_export()
 
     # ── Helpers ───────────────────────────────────────────────────────────────
