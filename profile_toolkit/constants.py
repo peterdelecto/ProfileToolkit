@@ -88,7 +88,7 @@ NAME_TRUNCATE_LONG = 120
 
 
 # --- BambuStudio UI Layout Definitions ---
-# Each entry: (json_key, ui_label)
+# Each entry: (json_key, ui_label[, slicer_tag])
 # Ordering matches BambuStudio's UI exactly (from screenshots + source code).
 
 FILAMENT_LAYOUT = {
@@ -416,21 +416,23 @@ del _tab_sections, _params, _entry
 # Criteria: keys that identify or version the profile itself, rather than
 # describe printer/filament settings. Add new keys here if they should
 # never appear in the parameter tabs or diff comparisons.
-_IDENTITY_KEYS = {
-    "name",
-    "type",
-    "inherits",
-    "from",
-    "setting_id",
-    "compatible_printers",
-    "compatible_printers_condition",
-    "printer_settings_id",
-    "version",
-    "is_custom_defined",
-    "instantiation",
-    "user_id",
-    "updated_time",
-}
+_IDENTITY_KEYS = frozenset(
+    {
+        "name",
+        "type",
+        "inherits",
+        "from",
+        "setting_id",
+        "compatible_printers",
+        "compatible_printers_condition",
+        "printer_settings_id",
+        "version",
+        "is_custom_defined",
+        "instantiation",
+        "user_id",
+        "updated_time",
+    }
+)
 
 # Keys that strongly indicate a filament profile
 _FILAMENT_SIGNAL_KEYS = frozenset(
@@ -488,8 +490,17 @@ _PROFILE_SIGNAL_KEYS = (
 RECOMMENDATIONS = {
     # Quality Tab
     "layer_height": {
-        "info": "Layer height controls detail vs speed tradeoff. Thicker layers = stronger parts (more bonding area), thinner = more detail. Speed relationship: Speed (mm/s) = Volumetric Flow / layer_height / line_width.",
+        "info": "Layer height controls detail vs speed tradeoff. For Z-axis (interlayer) strength, stay at or below 50% of nozzle diameter (e.g. ≤0.2 mm for a 0.4 mm nozzle) — CNC Kitchen testing shows 0.3 mm layers bear roughly half the load of 0.15–0.2 mm layers, and 0.4 mm layers fail almost immediately. For XY (in-plane) strength, layer height has minimal effect — bead cross-section scales with layer height so the two roughly cancel out, though parts still weaken above 0.3 mm. Thicker layers print faster with less detail. Speed relationship: Speed (mm/s) = Volumetric Flow / layer_height / line_width.",
         "sources": [
+            {
+                "label": "CNC Kitchen — Layer Height vs Strength",
+                "url": "https://www.cnckitchen.com/blog/the-influence-of-layer-height-on-the-strength-of-fdm-3d-prints",
+            },
+            {
+                "label": "ResearchGate — Layer Height Influence on Strength (Galetto et al.)",
+                "url": "https://www.researchgate.net/publication/353144458_Analysis_of_the_Influence_of_the_Layer_Height_on_the_Strength_of_3D_Printed_Structures",
+                # NOTE: URL returns 403 (may be region-gated) — flagged for manual review 2026-04-12
+            },
             {
                 "label": "Sloyd.ai Layer Height Guide",
                 "url": "https://www.sloyd.ai/blog/material-specific-layer-height-settings-guide",
@@ -517,7 +528,11 @@ RECOMMENDATIONS = {
                     {
                         "label": "Sloyd.ai Layer Height Guide",
                         "url": "https://www.sloyd.ai/blog/material-specific-layer-height-settings-guide",
-                    }
+                    },
+                    {
+                        "label": "Prusa PLA",
+                        "url": "https://help.prusa3d.com/article/pla_2062",
+                    },
                 ],
             },
             "PETG": {
@@ -528,45 +543,75 @@ RECOMMENDATIONS = {
                     {
                         "label": "Sloyd.ai Layer Height Guide",
                         "url": "https://www.sloyd.ai/blog/material-specific-layer-height-settings-guide",
-                    }
+                    },
+                    {
+                        "label": "Prusa PETG",
+                        "url": "https://help.prusa3d.com/article/petg_2059",
+                    },
                 ],
             },
             "ABS": {
-                "min": 0.2,
+                "min": 0.1,
                 "max": 0.3,
                 "typical": 0.2,
                 "sources": [
                     {
                         "label": "Sloyd.ai Layer Height Guide",
                         "url": "https://www.sloyd.ai/blog/material-specific-layer-height-settings-guide",
-                    }
+                    },
+                    {
+                        "label": "Prusa ABS",
+                        "url": "https://help.prusa3d.com/article/abs_2058",
+                    },
                 ],
             },
             "TPU": {
                 "min": 0.2,
                 "max": 0.3,
                 "typical": 0.2,
-                "notes": "0.05 mm possible for fine details",
+                "notes": "0.1 mm minimum practical for 0.4 mm nozzle",
                 "sources": [
                     {
                         "label": "Sloyd.ai Layer Height Guide",
                         "url": "https://www.sloyd.ai/blog/material-specific-layer-height-settings-guide",
-                    }
+                    },
+                    {
+                        "label": "Bambu Lab Wiki — TPU Printing Guide",
+                        "url": "https://wiki.bambulab.com/en/knowledge-sharing/tpu-printing-guide",
+                    },
                 ],
             },
             "PA": {
                 "min": 0.2,
-                "max": 0.4,
+                "max": 0.3,
                 "typical": 0.2,
-                "notes": "Broader range reduces warping",
+                "notes": "Max 0.3 mm (75% of 0.4 mm nozzle). Higher causes delamination.",
                 "sources": [
                     {
                         "label": "Sloyd.ai Layer Height Guide",
                         "url": "https://www.sloyd.ai/blog/material-specific-layer-height-settings-guide",
-                    }
+                    },
+                    {
+                        "label": "Prusa Polyamide",
+                        "url": "https://help.prusa3d.com/article/polyamide-nylon_167188",
+                    },
                 ],
             },
-            "PC": {"min": 0.2, "max": 0.3, "typical": 0.2},
+            "PC": {
+                "min": 0.2,
+                "max": 0.3,
+                "typical": 0.2,
+                "sources": [
+                    {
+                        "label": "Prusa KB — Polycarbonate",
+                        "url": "https://help.prusa3d.com/article/polycarbonate-pc_165812",
+                    },
+                    {
+                        "label": "Polymaker PolyLite PC",
+                        "url": "https://wiki.polymaker.com/polymaker-products/polymaker-filaments/prime-materials/polycarbonate/polylite-tm-pc",
+                    },
+                ],
+            },
             "PLA-CF": {
                 "min": 0.2,
                 "max": 0.3,
@@ -656,30 +701,72 @@ RECOMMENDATIONS = {
     },
     "outer_wall_line_width": {
         "info": "Typically 100% of nozzle diameter or slightly less for sharper detail. Narrower = finer detail; wider = more strength.",
+        "sources": [
+            {
+                "label": "Prusa KB — Layers and Perimeters",
+                "url": "https://help.prusa3d.com/article/layers-and-perimeters_1748",
+            },
+            {
+                "label": "Prusa KB — Profiles for Different Nozzles",
+                "url": "https://help.prusa3d.com/article/creating-profiles-for-different-nozzles_127540",
+            },
+        ],
         "ranges": {
             "General": {"min": 0.35, "max": 0.5, "typical": 0.4},
         },
     },
     "sparse_infill_line_width": {
         "info": "Can be wider than walls (110–150% of nozzle) for faster infill without quality loss. Wider lines = faster print, slightly stronger infill bonds.",
+        "sources": [
+            {
+                "label": "Polymaker Wiki — Printing Speeds",
+                "url": "https://wiki.polymaker.com/the-basics/3d-slicers/printing-speeds",
+            },
+            {
+                "label": "Ellis3DP — Extrusion Multiplier",
+                "url": "https://ellis3dp.com/Print-Tuning-Guide/articles/extrusion_multiplier.html",
+            },
+        ],
         "ranges": {
             "General": {"min": 0.4, "max": 0.65, "typical": 0.45},
         },
     },
     "bridge_flow": {
         "info": "Typically 90–100%. Slightly under-extruding bridges improves sag. Lower values stretch the filament more during bridging.",
+        "sources": [
+            {
+                "label": "OrcaSlicer Wiki — Bridging Quality Settings",
+                "url": "https://www.orcaslicer.com/wiki/print_settings/quality/quality_settings_bridging",
+            },
+        ],
         "ranges": {
             "General": {"min": 0.7, "max": 1.0, "typical": 0.95},
         },
     },
     "top_solid_infill_flow_ratio": {
         "info": "Controls extrusion for top surfaces specifically. Ellis3DP: tune extrusion multiplier for perfect top surfaces.",
+        "sources": [
+            {
+                "label": "Ellis3DP — Extrusion Multiplier",
+                "url": "https://ellis3dp.com/Print-Tuning-Guide/articles/extrusion_multiplier.html",
+            },
+        ],
         "ranges": {
             "General": {"min": 0.9, "max": 1.0, "typical": 0.97},
         },
     },
     "xy_hole_compensation": {
         "info": "Compensates for holes printing smaller than designed. Tune per-printer: print test holes and measure deviation.",
+        "sources": [
+            {
+                "label": "Kingroon — OrcaSlicer Hole Compensation",
+                "url": "https://kingroon.com/blogs/3d-print-101/understanding-orca-slicer-hole-compensation",
+            },
+            {
+                "label": "OrcaSlicer Wiki — Quality Settings",
+                "url": "https://www.orcaslicer.com/wiki/print_settings/quality/quality_settings_others",
+            },
+        ],
         "ranges": {
             "General": {"min": 0.0, "max": 0.3, "typical": 0.1},
         },
@@ -699,18 +786,48 @@ RECOMMENDATIONS = {
     # Strength Tab
     "wall_loops": {
         "info": "2–3 walls for general use, 4+ for strength. Walls contribute more to strength than infill in most cases. Single wall mode exists for vase/spiral prints.",
+        "sources": [
+            {
+                "label": "Prusa KB — Layers and Perimeters",
+                "url": "https://help.prusa3d.com/article/layers-and-perimeters_1748",
+            },
+            {
+                "label": "CNC Kitchen — Extrusion Width on Strength",
+                "url": "https://www.cnckitchen.com/blog/the-effect-of-extrusion-width-on-strength-and-quality-of-3d-prints",
+            },
+        ],
         "ranges": {
             "General": {"min": 2, "max": 6, "typical": 3},
         },
     },
     "top_shell_layers": {
         "info": "Minimum 3–5 layers for solid top surfaces. More layers = better surface quality, less infill show-through. Rule of thumb: at least 0.8 mm total top thickness.",
+        "sources": [
+            {
+                "label": "Polymaker Wiki — Top/Bottom Layers",
+                "url": "https://wiki.polymaker.com/the-basics/3d-slicers/top-bottom-layers",
+            },
+            {
+                "label": "OrcaSlicer Wiki — Top and Bottom Shells",
+                "url": "https://www.orcaslicer.com/wiki/print_settings/strength/strength_settings_top_bottom_shells",
+            },
+        ],
         "ranges": {
             "General": {"min": 3, "max": 8, "typical": 4},
         },
     },
     "bottom_shell_layers": {
         "info": "Minimum 3–4 layers. More layers = better bottom quality on textured surfaces.",
+        "sources": [
+            {
+                "label": "Polymaker Wiki — Top/Bottom Layers",
+                "url": "https://wiki.polymaker.com/the-basics/3d-slicers/top-bottom-layers",
+            },
+            {
+                "label": "OrcaSlicer Wiki — Top and Bottom Shells",
+                "url": "https://www.orcaslicer.com/wiki/print_settings/strength/strength_settings_top_bottom_shells",
+            },
+        ],
         "ranges": {
             "General": {"min": 3, "max": 6, "typical": 4},
         },
@@ -718,13 +835,24 @@ RECOMMENDATIONS = {
     # Speed Tab
     "initial_layer_speed": {
         "info": "Typically 50–70% of normal print speed. Slower = better adhesion. Too slow on some materials (PETG) can cause elephant's foot.",
+        "sources": [
+            {
+                "label": "Prusa KB — First Layer Issues",
+                "url": "https://help.prusa3d.com/article/first-layer-issues_1804",
+            },
+        ],
         "ranges": {
             "General": {"min": 20, "max": 60, "typical": 40},
         },
     },
     "outer_wall_speed": {
         "info": "Outer wall speed is the primary quality-affecting speed parameter. Material-dependent — TPU needs very slow speeds.",
-        "sources": [],
+        "sources": [
+            {
+                "label": "Polymaker Wiki — Printing Speeds",
+                "url": "https://wiki.polymaker.com/the-basics/3d-slicers/printing-speeds",
+            },
+        ],
         "ranges": {
             "PLA": {
                 "min": 50,
@@ -853,6 +981,12 @@ RECOMMENDATIONS = {
     },
     "inner_wall_speed": {
         "info": "Can typically be 25–50% faster than outer wall speed since not visible. Same material constraints apply.",
+        "sources": [
+            {
+                "label": "Polymaker Wiki — Printing Speeds",
+                "url": "https://wiki.polymaker.com/the-basics/3d-slicers/printing-speeds",
+            },
+        ],
         "ranges": {
             "TPU": {"min": 20, "max": 50, "typical": 35},
             "General": {"min": 50, "max": 300, "typical": 100},
@@ -873,18 +1007,40 @@ RECOMMENDATIONS = {
     },
     "top_surface_speed": {
         "info": "Slower than infill for quality (typically 50–70% of outer wall speed). Affects visible surface quality significantly.",
+        "sources": [
+            {
+                "label": "Polymaker Wiki — Printing Speeds",
+                "url": "https://wiki.polymaker.com/the-basics/3d-slicers/printing-speeds",
+            },
+        ],
         "ranges": {
             "General": {"min": 30, "max": 150, "typical": 60},
         },
     },
     "bridge_speed": {
-        "info": "Typically 20–40 mm/s. Slower bridges sag less.",
+        "info": "Typically 20–40 mm/s. Moderate speed with maximum cooling produces best bridges. Too slow allows heat to accumulate and sag; too fast stretches the filament. Always pair with 100% fan.",
+        "sources": [
+            {
+                "label": "Prusa KB — Poor Bridging",
+                "url": "https://help.prusa3d.com/article/poor-bridging_1802",
+            },
+            {
+                "label": "Anycubic — 3D Printing Bridging",
+                "url": "https://store.anycubic.com/blogs/3d-printing-guides/3d-printing-bridging",
+            },
+        ],
         "ranges": {
             "General": {"min": 15, "max": 50, "typical": 30},
         },
     },
     "travel_speed": {
         "info": "Typically 120–250 mm/s (as fast as machine allows). Faster travel = less stringing, less ooze. TPU: 100–150 mm/s.",
+        "sources": [
+            {
+                "label": "Simplify3D — Stringing or Oozing",
+                "url": "https://www.simplify3d.com/resources/print-quality-troubleshooting/stringing-or-oozing/",
+            },
+        ],
         "ranges": {
             "TPU": {"min": 100, "max": 150, "typical": 120},
             "General": {"min": 120, "max": 300, "typical": 200},
@@ -904,6 +1060,16 @@ RECOMMENDATIONS = {
     },
     "outer_wall_acceleration": {
         "info": "Lower than inner wall/infill for surface quality. Reduces ringing/ghosting artifacts on visible surfaces.",
+        "sources": [
+            {
+                "label": "OrcaSlicer Wiki — Acceleration Settings",
+                "url": "https://www.orcaslicer.com/wiki/print_settings/speed/speed_settings_acceleration",
+            },
+            {
+                "label": "Polymaker Wiki — Ghosting/Ringing",
+                "url": "https://wiki.polymaker.com/printing-tips/common-printing-issues/ghosting-echo-ringing-effect",
+            },
+        ],
         "ranges": {
             "General": {"min": 500, "max": 5000, "typical": 2000},
         },
@@ -911,12 +1077,24 @@ RECOMMENDATIONS = {
     # Support Tab
     "support_threshold_angle": {
         "info": "Angle from vertical below which supports generate. 45° is a common default. Material-dependent: PLA handles steeper overhangs better with cooling.",
+        "sources": [
+            {
+                "label": "3DSourced — 45 Degree Rule",
+                "url": "https://www.3dsourced.com/rigid-ink/how-to-print-overhangs-bridges-exeeding-the-45-degree-rule/",
+            },
+        ],
         "ranges": {
             "General": {"min": 30, "max": 60, "typical": 45},
         },
     },
     "support_top_z_distance": {
         "info": "Standard: 1 layer height. Water-soluble supports (PVA/BVOH): 0 mm for perfect interface. TPU supports: 0.3 mm Z-spacing.",
+        "sources": [
+            {
+                "label": "Prusa KB — Water-soluble BVOH/PVA",
+                "url": "https://help.prusa3d.com/article/water-soluble-bvoh-pva_167012",
+            },
+        ],
         "ranges": {
             "TPU": {
                 "min": 0.2,
@@ -946,6 +1124,16 @@ RECOMMENDATIONS = {
     # Others Tab
     "brim_width": {
         "info": "HIPS: recommended for small contact areas. PP: 5–10 mm depending on model size. ABS/ASA: helps with warping on unenclosed printers.",
+        "sources": [
+            {
+                "label": "Prusa KB — Skirt and Brim",
+                "url": "https://help.prusa3d.com/article/skirt-and-brim_133969",
+            },
+            {
+                "label": "Polymaker Wiki — Warping Prevention",
+                "url": "https://wiki.polymaker.com/printing-tips/common-printing-issues/warping",
+            },
+        ],
         "ranges": {
             "ABS": {"min": 3, "max": 10, "typical": 5, "notes": "Helps with warping"},
             "ASA": {"min": 3, "max": 10, "typical": 5, "notes": "Helps with warping"},
@@ -984,6 +1172,10 @@ RECOMMENDATIONS = {
     "nozzle_temperature": {
         "info": "Hotter = better layer adhesion but more stringing/oozing. All-metal hotend required above ~240°C. Temperature tuning: adjust 5°C at a time.",
         "sources": [
+            {
+                "label": "Prusa Filament Material Guide",
+                "url": "https://help.prusa3d.com/filament-material-guide",
+            },
             {
                 "label": "OrcaSlicer Material Temps",
                 "url": "https://www.orcaslicer.com/wiki/material_settings/filament/material_temperatures",
@@ -1183,17 +1375,30 @@ RECOMMENDATIONS = {
                         "label": "Simplify3D CF Guide",
                         "url": "https://www.simplify3d.com/resources/materials-guide/carbon-fiber-filled/",
                     },
+                    {
+                        "label": "Prusa Composite Materials",
+                        "url": "https://help.prusa3d.com/article/composite-materials-filled-with-carbon-kevlar-or-glass_167387",
+                    },
                 ],
             },
             "PETG-CF": {
                 "min": 240,
-                "max": 270,
-                "typical": 250,
+                "max": 280,
+                "typical": 255,
+                "notes": "CF increases viscosity; may need +10–20°C over base PETG",
                 "sources": [
                     {
                         "label": "Polymaker Printing Temperature",
                         "url": "https://wiki.polymaker.com/the-basics/3d-slicers/printing-temperature",
-                    }
+                    },
+                    {
+                        "label": "MDPI — PETG-CF Mechanical & Tribological Performance",
+                        "url": "https://www.mdpi.com/2076-3417/13/23/12701",
+                    },
+                    {
+                        "label": "Prusa Composite Materials",
+                        "url": "https://help.prusa3d.com/article/composite-materials-filled-with-carbon-kevlar-or-glass_167387",
+                    },
                 ],
             },
             "PA-CF": {
@@ -1204,7 +1409,15 @@ RECOMMENDATIONS = {
                     {
                         "label": "Polymaker Nylon (PA)",
                         "url": "https://wiki.polymaker.com/polymaker-products/polymaker-filaments/prime-materials/nylon-pa",
-                    }
+                    },
+                    {
+                        "label": "ScienceDirect — Nylon-Carbon Fiber FDM Mechanical Properties",
+                        "url": "https://www.sciencedirect.com/science/article/abs/pii/S1359835X24004160",
+                    },
+                    {
+                        "label": "Prusa Composite Materials",
+                        "url": "https://help.prusa3d.com/article/composite-materials-filled-with-carbon-kevlar-or-glass_167387",
+                    },
                 ],
             },
             "General": {"min": 190, "max": 310, "typical": 230},
@@ -1212,6 +1425,12 @@ RECOMMENDATIONS = {
     },
     "nozzle_temperature_initial_layer": {
         "info": "Typically same as nozzle temp or 5°C higher for adhesion. Prusa PLA: 215°C first layer. Some filaments benefit from slightly lower first layer temp to reduce elephant's foot.",
+        "sources": [
+            {
+                "label": "CNC Kitchen — Extrusion Temperature and Layer Adhesion",
+                "url": "https://www.cnckitchen.com/blog/the-influence-of-extrusion-temperature-on-layer-adhesion/",
+            },
+        ],
         "ranges": {
             "PLA": {"min": 195, "max": 230, "typical": 215},
             "PETG": {"min": 225, "max": 260, "typical": 245},
@@ -1220,6 +1439,9 @@ RECOMMENDATIONS = {
             "TPU": {"min": 215, "max": 250, "typical": 230},
             "PA": {"min": 245, "max": 295, "typical": 270},
             "PC": {"min": 265, "max": 315, "typical": 285},
+            "PLA-CF": {"min": 205, "max": 245, "typical": 230},
+            "PETG-CF": {"min": 245, "max": 285, "typical": 260},
+            "PA-CF": {"min": 265, "max": 305, "typical": 285},
             "General": {"min": 195, "max": 315, "typical": 235},
         },
     },
@@ -1227,6 +1449,10 @@ RECOMMENDATIONS = {
         "info": "Bed temperature for PEI Plate (other layers).",
         "sources": [
             {
+                "label": "Prusa Filament Material Guide",
+                "url": "https://help.prusa3d.com/filament-material-guide",
+            },
+            {
                 "label": "OrcaSlicer Material Temps",
                 "url": "https://www.orcaslicer.com/wiki/material_settings/filament/material_temperatures",
             },
@@ -1318,12 +1544,13 @@ RECOMMENDATIONS = {
             },
             "TPU": {
                 "min": 25,
-                "max": 65,
+                "max": 60,
                 "typical": 50,
+                "notes": "Very sticky — can be extremely difficult to remove at higher temps. Lower is safer.",
                 "sources": [
                     {
-                        "label": "Polymaker TPU",
-                        "url": "https://wiki.polymaker.com/the-basics/3d-printing-materials/tpu",
+                        "label": "Polymaker PolyFlex TPU90 PIS",
+                        "url": "https://polymaker.com/wp-content/tech-docs/PolyFlex_TPU90_PIS_EN_V1.3.pdf",
                     },
                     {
                         "label": "Prusa Prusament TPU 95A",
@@ -1340,10 +1567,10 @@ RECOMMENDATIONS = {
                 ],
             },
             "PA": {
-                "min": 60,
+                "min": 80,
                 "max": 110,
                 "typical": 90,
-                "notes": "Must dry filament before printing",
+                "notes": "Must dry filament before printing (below 90°C, ≥4 hrs). 60°C causes warping on most surfaces.",
                 "sources": [
                     {
                         "label": "Polymaker Nylon (PA)",
@@ -1364,10 +1591,10 @@ RECOMMENDATIONS = {
                 ],
             },
             "PC": {
-                "min": 90,
-                "max": 125,
-                "typical": 110,
-                "notes": "Enclosure strongly recommended",
+                "min": 100,
+                "max": 150,
+                "typical": 130,
+                "notes": "Enclosure strongly recommended. Pure PC needs 130°C+; blends may work at 100–115°C.",
                 "sources": [
                     {
                         "label": "Polymaker PolyLite PC",
@@ -1387,13 +1614,53 @@ RECOMMENDATIONS = {
                     },
                 ],
             },
-            "General": {"min": 25, "max": 125, "typical": 60},
+            "PLA-CF": {
+                "min": 25,
+                "max": 65,
+                "typical": 60,
+                "notes": "Same as PLA — CF filler does not significantly change bed adhesion.",
+                "sources": [
+                    {
+                        "label": "Prusa Composite Materials",
+                        "url": "https://help.prusa3d.com/article/composite-materials-filled-with-carbon-kevlar-or-glass_167387",
+                    },
+                ],
+            },
+            "PETG-CF": {
+                "min": 60,
+                "max": 90,
+                "typical": 80,
+                "notes": "Same as PETG — CF filler does not significantly change bed adhesion.",
+                "sources": [
+                    {
+                        "label": "Prusa Composite Materials",
+                        "url": "https://help.prusa3d.com/article/composite-materials-filled-with-carbon-kevlar-or-glass_167387",
+                    },
+                ],
+            },
+            "PA-CF": {
+                "min": 80,
+                "max": 110,
+                "typical": 90,
+                "notes": "Same as PA — CF filler does not significantly change bed adhesion. Must dry filament.",
+                "sources": [
+                    {
+                        "label": "Prusa Composite Materials",
+                        "url": "https://help.prusa3d.com/article/composite-materials-filled-with-carbon-kevlar-or-glass_167387",
+                    },
+                ],
+            },
+            "General": {"min": 25, "max": 150, "typical": 60},
         },
     },
     "textured_plate_temp": {
         "info": "Bed temperature for Textured PEI Plate (other layers).",
         "sources": [
             {
+                "label": "Prusa Filament Material Guide",
+                "url": "https://help.prusa3d.com/filament-material-guide",
+            },
+            {
                 "label": "OrcaSlicer Material Temps",
                 "url": "https://www.orcaslicer.com/wiki/material_settings/filament/material_temperatures",
             },
@@ -1485,12 +1752,13 @@ RECOMMENDATIONS = {
             },
             "TPU": {
                 "min": 25,
-                "max": 65,
+                "max": 60,
                 "typical": 50,
+                "notes": "Very sticky — can be extremely difficult to remove at higher temps. Lower is safer.",
                 "sources": [
                     {
-                        "label": "Polymaker TPU",
-                        "url": "https://wiki.polymaker.com/the-basics/3d-printing-materials/tpu",
+                        "label": "Polymaker PolyFlex TPU90 PIS",
+                        "url": "https://polymaker.com/wp-content/tech-docs/PolyFlex_TPU90_PIS_EN_V1.3.pdf",
                     },
                     {
                         "label": "Prusa Prusament TPU 95A",
@@ -1507,10 +1775,10 @@ RECOMMENDATIONS = {
                 ],
             },
             "PA": {
-                "min": 60,
+                "min": 80,
                 "max": 110,
                 "typical": 90,
-                "notes": "Must dry filament before printing",
+                "notes": "Must dry filament before printing (below 90°C, ≥4 hrs). 60°C causes warping on most surfaces.",
                 "sources": [
                     {
                         "label": "Polymaker Nylon (PA)",
@@ -1531,10 +1799,10 @@ RECOMMENDATIONS = {
                 ],
             },
             "PC": {
-                "min": 90,
-                "max": 125,
-                "typical": 110,
-                "notes": "Enclosure strongly recommended",
+                "min": 100,
+                "max": 150,
+                "typical": 130,
+                "notes": "Enclosure strongly recommended. Pure PC needs 130°C+; blends may work at 100–115°C.",
                 "sources": [
                     {
                         "label": "Polymaker PolyLite PC",
@@ -1554,7 +1822,43 @@ RECOMMENDATIONS = {
                     },
                 ],
             },
-            "General": {"min": 25, "max": 125, "typical": 60},
+            "PLA-CF": {
+                "min": 25,
+                "max": 65,
+                "typical": 60,
+                "notes": "Same as PLA — CF filler does not significantly change bed adhesion.",
+                "sources": [
+                    {
+                        "label": "Prusa Composite Materials",
+                        "url": "https://help.prusa3d.com/article/composite-materials-filled-with-carbon-kevlar-or-glass_167387",
+                    },
+                ],
+            },
+            "PETG-CF": {
+                "min": 60,
+                "max": 90,
+                "typical": 80,
+                "notes": "Same as PETG — CF filler does not significantly change bed adhesion.",
+                "sources": [
+                    {
+                        "label": "Prusa Composite Materials",
+                        "url": "https://help.prusa3d.com/article/composite-materials-filled-with-carbon-kevlar-or-glass_167387",
+                    },
+                ],
+            },
+            "PA-CF": {
+                "min": 80,
+                "max": 110,
+                "typical": 90,
+                "notes": "Same as PA — CF filler does not significantly change bed adhesion. Must dry filament.",
+                "sources": [
+                    {
+                        "label": "Prusa Composite Materials",
+                        "url": "https://help.prusa3d.com/article/composite-materials-filled-with-carbon-kevlar-or-glass_167387",
+                    },
+                ],
+            },
+            "General": {"min": 25, "max": 150, "typical": 60},
         },
     },
     "filament_max_volumetric_speed": {
@@ -1573,7 +1877,7 @@ RECOMMENDATIONS = {
             "PLA": {
                 "min": 10,
                 "max": 25,
-                "typical": 16.75,
+                "typical": 17,
                 "sources": [
                     {
                         "label": "Obico OrcaSlicer Calibration",
@@ -1584,7 +1888,7 @@ RECOMMENDATIONS = {
             "PETG": {
                 "min": 10,
                 "max": 20,
-                "typical": 14.5,
+                "typical": 15,
                 "sources": [
                     {
                         "label": "Obico OrcaSlicer Calibration",
@@ -1619,7 +1923,11 @@ RECOMMENDATIONS = {
                     {
                         "label": "Polymaker ASA",
                         "url": "https://wiki.polymaker.com/polymaker-products/polymaker-filaments/prime-materials/abs-and-asa/polymaker-tm-asa",
-                    }
+                    },
+                    {
+                        "label": "PMC — PETG & ASA FDM Parameter Optimization (Anycubic)",
+                        "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11360432/",
+                    },
                 ],
             },
             "PC": {
@@ -1630,8 +1938,37 @@ RECOMMENDATIONS = {
                     {
                         "label": "Polymaker PolyLite PC",
                         "url": "https://wiki.polymaker.com/polymaker-products/polymaker-filaments/prime-materials/polycarbonate/polylite-tm-pc",
-                    }
+                    },
+                    {
+                        "label": "PMC — PC FFF Temperature & Strength (LulzBot TAZ 6)",
+                        "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7579282/",
+                    },
                 ],
+            },
+            "TPU": {
+                "min": 2,
+                "max": 8,
+                "typical": 5,
+                "notes": "Very low flow rate — flexible filament compresses in extruder",
+            },
+            "PA": {"min": 8, "max": 18, "typical": 12},
+            "PLA-CF": {
+                "min": 8,
+                "max": 18,
+                "typical": 12,
+                "notes": "Fiber content reduces flow vs base PLA",
+            },
+            "PETG-CF": {
+                "min": 8,
+                "max": 16,
+                "typical": 11,
+                "notes": "Fiber content reduces flow vs base PETG",
+            },
+            "PA-CF": {
+                "min": 6,
+                "max": 14,
+                "typical": 10,
+                "notes": "Fiber content reduces flow vs base PA",
             },
             "General": {
                 "min": 8,
@@ -1664,11 +2001,25 @@ RECOMMENDATIONS = {
             "PETG": {"min": 2, "max": 3, "typical": 3},
             "ABS": {"min": 1, "max": 5, "typical": 3},
             "ASA": {"min": 1, "max": 5, "typical": 3},
+            "TPU": {"min": 1, "max": 2, "typical": 1},
+            "PA": {
+                "min": 2,
+                "max": 5,
+                "typical": 3,
+                "notes": "Warping-sensitive — more no-fan layers help",
+            },
+            "PC": {
+                "min": 2,
+                "max": 5,
+                "typical": 3,
+                "notes": "Warping-sensitive — more no-fan layers help",
+            },
+            "PLA-CF": {"min": 1, "max": 1, "typical": 1},
             "General": {"min": 1, "max": 3, "typical": 1},
         },
     },
     "fan_min_speed": {
-        "info": "Minimum fan speed threshold. Constant fan speeds recommended — varying speeds cause inconsistent layers and banding.",
+        "info": "Minimum fan speed threshold. Constant fan speeds reduce banding risk (Ellis3DP). However, dynamic fan scaling by layer time (as in BambuStudio/OrcaSlicer) is widely used successfully and can improve both quality and speed.",
         "sources": [
             {
                 "label": "Ellis3DP Cooling",
@@ -1798,7 +2149,11 @@ RECOMMENDATIONS = {
                     {
                         "label": "Polymaker Printing Temperature",
                         "url": "https://wiki.polymaker.com/the-basics/3d-slicers/printing-temperature",
-                    }
+                    },
+                    {
+                        "label": "MDPI — Cooling & Tensile Properties of PLA/Carbon Fiber Composites",
+                        "url": "https://www.mdpi.com/2073-4360/17/13/1797",  # NOTE: URL returns 403 — flagged for manual review 2026-04-12
+                    },
                 ],
             },
             "General": {"min": 0, "max": 100, "typical": 50},
@@ -1862,8 +2217,9 @@ RECOMMENDATIONS = {
             },
             "ASA": {
                 "min": 0,
-                "max": 30,
+                "max": 50,
                 "typical": 20,
+                "notes": "Up to 40–50% for bridges/overhangs in enclosed setups",
                 "sources": [
                     {
                         "label": "3DTrcek ASA Guide",
@@ -1935,7 +2291,11 @@ RECOMMENDATIONS = {
                     {
                         "label": "Polymaker Printing Temperature",
                         "url": "https://wiki.polymaker.com/the-basics/3d-slicers/printing-temperature",
-                    }
+                    },
+                    {
+                        "label": "MDPI — Cooling & Tensile Properties of PLA/Carbon Fiber Composites",
+                        "url": "https://www.mdpi.com/2073-4360/17/13/1797",  # NOTE: URL returns 403 — flagged for manual review 2026-04-12
+                    },
                 ],
             },
             "General": {"min": 0, "max": 100, "typical": 70},
@@ -1943,14 +2303,37 @@ RECOMMENDATIONS = {
     },
     "overhang_fan_speed": {
         "info": "Typically 100% for PLA overhangs. Force cooling for overhangs improves quality on all materials.",
+        "sources": [
+            {
+                "label": "Ellis3DP — Cooling and Layer Times",
+                "url": "https://ellis3dp.com/Print-Tuning-Guide/articles/cooling_and_layer_times.html",
+            },
+            {
+                "label": "Polymaker Wiki — Cooling",
+                "url": "https://wiki.polymaker.com/the-basics/3d-slicers/cooling",
+            },
+        ],
         "ranges": {
             "PLA": {"min": 80, "max": 100, "typical": 100},
+            "PETG": {"min": 50, "max": 80, "typical": 70},
+            "ABS": {
+                "min": 0,
+                "max": 50,
+                "typical": 30,
+                "notes": "Enclosed: 20–50%. Unenclosed: 0%.",
+            },
+            "ASA": {
+                "min": 0,
+                "max": 50,
+                "typical": 30,
+                "notes": "Enclosed: 20–50%. Unenclosed: 0%.",
+            },
             "General": {"min": 50, "max": 100, "typical": 100},
         },
     },
     # Setting Overrides: Retraction
     "filament_retraction_length": {
-        "info": "Direct drive: 0.5–2 mm (hard max 2 mm). Bowden: 1–6 mm. Calibrate in 0.1 mm increments (direct drive) or 0.5 mm (Bowden). Should be calibrated AFTER flow rate and pressure advance.",
+        "info": "Direct drive: 0.5–2 mm typical (rarely above 2 mm, but no universal hard limit). Bowden: 1–6 mm. Calibrate in 0.1 mm increments (direct drive) or 0.5 mm (Bowden). Should be calibrated AFTER flow rate and pressure advance.",
         "sources": [
             {
                 "label": "Ellis3DP Retraction",
@@ -2052,7 +2435,15 @@ RECOMMENDATIONS = {
                     {
                         "label": "Polymaker Nylon (PA)",
                         "url": "https://wiki.polymaker.com/polymaker-products/polymaker-filaments/prime-materials/nylon-pa",
-                    }
+                    },
+                    {
+                        "label": "Ellis3DP — Retraction",
+                        "url": "https://ellis3dp.com/Print-Tuning-Guide/articles/retraction.html",
+                    },
+                    {
+                        "label": "Prusa KB — Polyamide (Nylon)",
+                        "url": "https://help.prusa3d.com/article/polyamide-nylon_167188",
+                    },
                 ],
             },
             "PC": {
@@ -2063,7 +2454,15 @@ RECOMMENDATIONS = {
                     {
                         "label": "Polymaker PolyLite PC",
                         "url": "https://wiki.polymaker.com/polymaker-products/polymaker-filaments/prime-materials/polycarbonate/polylite-tm-pc",
-                    }
+                    },
+                    {
+                        "label": "Ellis3DP — Retraction",
+                        "url": "https://ellis3dp.com/Print-Tuning-Guide/articles/retraction.html",
+                    },
+                    {
+                        "label": "Prusa KB — Polycarbonate (PC)",
+                        "url": "https://help.prusa3d.com/article/polycarbonate-pc_165812",
+                    },
                 ],
             },
             "PLA-CF": {
@@ -2090,7 +2489,15 @@ RECOMMENDATIONS = {
                     {
                         "label": "Polymaker Printing Temperature",
                         "url": "https://wiki.polymaker.com/the-basics/3d-slicers/printing-temperature",
-                    }
+                    },
+                    {
+                        "label": "Simplify3D — Carbon Fiber Filled Guide",
+                        "url": "https://www.simplify3d.com/resources/materials-guide/carbon-fiber-filled/",
+                    },
+                    {
+                        "label": "Prusa KB — Composite Materials",
+                        "url": "https://help.prusa3d.com/article/composite-materials-filled-with-carbon-kevlar-or-glass_167387",
+                    },
                 ],
             },
             "PA-CF": {
@@ -2101,7 +2508,15 @@ RECOMMENDATIONS = {
                     {
                         "label": "Polymaker Nylon (PA)",
                         "url": "https://wiki.polymaker.com/polymaker-products/polymaker-filaments/prime-materials/nylon-pa",
-                    }
+                    },
+                    {
+                        "label": "Ellis3DP — Retraction",
+                        "url": "https://ellis3dp.com/Print-Tuning-Guide/articles/retraction.html",
+                    },
+                    {
+                        "label": "Prusa KB — Composite Materials",
+                        "url": "https://help.prusa3d.com/article/composite-materials-filled-with-carbon-kevlar-or-glass_167387",
+                    },
                 ],
             },
             "General": {"min": 0.5, "max": 5.0, "typical": 1.5},
@@ -2179,6 +2594,12 @@ RECOMMENDATIONS = {
     },
     "filament_z_hop": {
         "info": "Helps prevent nozzle dragging across printed surfaces during travel. Too high = more stringing from ooze during travel.",
+        "sources": [
+            {
+                "label": "Obico — Z-Hop in OrcaSlicer",
+                "url": "https://www.obico.io/blog/z-hop-in-orca-slicer-the-secret-to-perfect-3d-prints/",
+            },
+        ],
         "ranges": {
             "General": {"min": 0.0, "max": 0.6, "typical": 0.3},
         },
@@ -2404,6 +2825,8 @@ for _ekey, _evals in ENUM_VALUES.items():
 _ENUM_JSON_TO_LABEL = {}
 for _ekey, _evals in ENUM_VALUES.items():
     _ENUM_JSON_TO_LABEL[_ekey] = {jval: label for jval, label in _evals}
+
+del _ekey, _evals  # Clean up loop vars from module namespace
 
 # --- Printer & Filament Database ---
 

@@ -8,6 +8,7 @@ import os
 import tempfile
 import re
 import threading
+import time
 import tkinter as tk
 import urllib.error
 import webbrowser
@@ -67,6 +68,7 @@ class OnlineImportWizard(tk.Toplevel):
         self._filter_brand = tk.StringVar(value="All")
         self._filter_machine = tk.StringVar(value="All")
         self._filter_nozzle = tk.StringVar(value="All")
+        self._suppress_filter_trace = False
 
         # Style comboboxes for dark theme
         self._style_combos()
@@ -676,14 +678,11 @@ class OnlineImportWizard(tk.Toplevel):
         self._show_pane_status("Fetching catalog...")
 
     def _start_catalog_fetch(self, provider) -> None:
-        import time as _time
-
-        self._fetch_last_activity = _time.time()
+        self._fetch_last_activity = time.time()
 
         def _status_update(msg: str) -> None:
-            import time as _t
 
-            self._fetch_last_activity = _t.time()  # heartbeat
+            self._fetch_last_activity = time.time()  # heartbeat
 
             def _update(m: str = msg) -> None:
                 self._browse_status.set(m)
@@ -708,14 +707,6 @@ class OnlineImportWizard(tk.Toplevel):
             except tk.TclError:
                 pass
 
-        def _safe_after(fn):
-            """Schedule fn on main thread only if widget still exists."""
-            try:
-                if self.winfo_exists():
-                    self.after(0, fn)
-            except tk.TclError:
-                pass
-
         def _fetch() -> None:
             try:
                 catalog = provider.fetch_catalog(
@@ -725,7 +716,7 @@ class OnlineImportWizard(tk.Toplevel):
                 if self._fetch_done.is_set() or self._cancelled:
                     return
                 self._fetch_done.set()
-                _safe_after(lambda: self._on_catalog_loaded(catalog))
+                self._safe_after(0, lambda: self._on_catalog_loaded(catalog))
             except urllib.error.HTTPError as ex:
                 if self._fetch_done.is_set() or self._cancelled:
                     return
@@ -736,13 +727,13 @@ class OnlineImportWizard(tk.Toplevel):
                     msg = "Source not found (404) — URL may have changed"
                 else:
                     msg = f"HTTP error {ex.code}: {ex.reason}"
-                _safe_after(lambda m=msg: self._on_catalog_error(m))
+                self._safe_after(0, lambda m=msg: self._on_catalog_error(m))
             except urllib.error.URLError as ex:
                 if self._fetch_done.is_set() or self._cancelled:
                     return
                 self._fetch_done.set()
                 msg = f"Network error: {ex.reason}"
-                _safe_after(lambda m=msg: self._on_catalog_error(m))
+                self._safe_after(0, lambda m=msg: self._on_catalog_error(m))
             except Exception as ex:
                 if self._fetch_done.is_set() or self._cancelled:
                     return
@@ -752,7 +743,7 @@ class OnlineImportWizard(tk.Toplevel):
                     ex,
                     "Check your internet connection.",
                 )
-                _safe_after(lambda m=msg: self._on_catalog_error(m))
+                self._safe_after(0, lambda m=msg: self._on_catalog_error(m))
 
         threading.Thread(target=_fetch, daemon=True).start()
 
@@ -760,9 +751,7 @@ class OnlineImportWizard(tk.Toplevel):
         def _watchdog() -> None:
             if self._fetch_done.is_set() or self._cancelled:
                 return
-            import time as _t
-
-            idle = _t.time() - self._fetch_last_activity
+            idle = time.time() - self._fetch_last_activity
             if idle < FETCH_TIMEOUT_MS / 1000:
                 remaining = int((FETCH_TIMEOUT_MS / 1000 - idle) * 1000) + 1000
                 self._watchdog_id = self.after(remaining, _watchdog)
@@ -814,10 +803,12 @@ class OnlineImportWizard(tk.Toplevel):
 
         # Reset filters to "All" before repopulating (avoids stale values
         # from a previous source lingering in the dropdown display)
+        self._suppress_filter_trace = True
         self._filter_material.set("All")
         self._filter_brand.set("All")
         self._filter_machine.set("All")
         self._filter_nozzle.set("All")
+        self._suppress_filter_trace = False
 
         # Populate filter dropdowns
         materials = sorted(set(e.material for e in catalog if e.material))
@@ -927,14 +918,10 @@ class OnlineImportWizard(tk.Toplevel):
 
     def _start_catalog_fetch_online(self, provider) -> None:
         """Fetch catalog using the provider's online path (skipping bundle)."""
-        import time as _time
-
-        self._fetch_last_activity = _time.time()
+        self._fetch_last_activity = time.time()
 
         def _status_update(msg: str) -> None:
-            import time as _t
-
-            self._fetch_last_activity = _t.time()
+            self._fetch_last_activity = time.time()
 
             def _update(m: str = msg) -> None:
                 self._browse_status.set(m)
@@ -975,9 +962,7 @@ class OnlineImportWizard(tk.Toplevel):
         def _watchdog() -> None:
             if self._fetch_done.is_set() or self._cancelled:
                 return
-            import time as _t
-
-            idle = _t.time() - self._fetch_last_activity
+            idle = time.time() - self._fetch_last_activity
             if idle < FETCH_TIMEOUT_MS / 1000:
                 remaining = int((FETCH_TIMEOUT_MS / 1000 - idle) * 1000) + 1000
                 self._watchdog_id = self.after(remaining, _watchdog)
@@ -1018,6 +1003,8 @@ class OnlineImportWizard(tk.Toplevel):
         ).pack(anchor="w", pady=(6, 0))
 
     def _apply_filters(self) -> None:
+        if self._suppress_filter_trace:
+            return
         if self._current_step != 1 or not self._catalog:
             return
         mat = self._filter_material.get()
@@ -1124,7 +1111,7 @@ class OnlineImportWizard(tk.Toplevel):
             row.pack(fill="x")
 
             var = tk.BooleanVar(value=entry.selected)
-            self._check_vars[id(entry)] = (var, entry)
+            self._check_vars[(entry.name, entry.url)] = (var, entry)
 
             cb = tk.Checkbutton(
                 row,
@@ -1546,86 +1533,92 @@ class OnlineImportWizard(tk.Toplevel):
             errors = []
             saved_dirs = set()
             written_files = []  # Track for cancel rollback (#13)
-            for i, entry in enumerate(entries):
-                if self._cancelled:
-                    # Roll back files written to target dirs (#13)
-                    for fpath in written_files:
-                        try:
-                            os.unlink(fpath)
-                        except OSError:
-                            pass
-                    for td in tmp_dirs:
-                        shutil.rmtree(td, ignore_errors=True)
-                    return
-
-                def _update_progress(idx: int = i, name: str = entry.name) -> None:
-                    self._import_status.set(
-                        f"Downloading {idx+1}/{len(entries)}: {name}"
-                    )
-                    pb = getattr(self, "_import_progress", None)
-                    if pb:
-                        pb.configure(value=idx + 1)
-
-                self._safe_after(0, _update_progress)
-                try:
-                    data, fname = provider.download_profile(entry)
-                    if data and fname:
-                        fname = os.path.basename(fname).replace("\x00", "")
-                        if not fname or fname.startswith("."):
-                            fname = (
-                                entry.name.replace(" ", "_").replace("/", "-") + ".json"
-                            )
-
-                        # Save to each checked target directory
-                        primary_path = None
-                        for tdir in target_dirs:
-                            os.makedirs(tdir, exist_ok=True)
-                            dest = os.path.realpath(os.path.join(tdir, fname))
-                            # Avoid overwriting existing files (#14)
-                            base_dest, ext_part = os.path.splitext(dest)
-                            counter = 2
-                            while os.path.exists(dest):
-                                dest = f"{base_dest}_{counter}{ext_part}"
-                                counter += 1
-                                if counter > 100:
-                                    raise ValueError(f"Too many collisions: {fname}")
-                            if not dest.startswith(os.path.realpath(tdir) + os.sep):
-                                raise ValueError(f"Path traversal blocked: {fname}")
-                            with open(dest, "wb") as f:
-                                f.write(data)
-                            written_files.append(dest)
-                            saved_dirs.add(tdir)
-                            if primary_path is None:
-                                primary_path = dest
-
-                        if primary_path:
-                            results.append((primary_path, None, provider.name))
-                        else:
-                            tmp_dir = tempfile.mkdtemp(prefix="ppc_import_")
-                            tmp_dirs.append(tmp_dir)
-                            tmp_path = os.path.join(tmp_dir, fname)
-                            with open(tmp_path, "wb") as f:
-                                f.write(data)
-                            results.append((tmp_path, None, provider.name))
-                except Exception as ex:
-                    errors.append(f"{entry.name}: {ex}")
-                    logger.warning("Download failed: %s", entry.name, exc_info=True)
-
             try:
-                if self.winfo_exists():
-                    self.after(
-                        0,
-                        lambda: self._on_download_complete(
-                            results, errors, list(saved_dirs), tmp_dirs
-                        ),
-                    )
-                else:
-                    # Widget destroyed — clean up tmp_dirs directly
+                for i, entry in enumerate(entries):
+                    if self._cancelled:
+                        # Roll back files written to target dirs (#13)
+                        for fpath in written_files:
+                            try:
+                                os.unlink(fpath)
+                            except OSError:
+                                pass
+                        for td in tmp_dirs:
+                            shutil.rmtree(td, ignore_errors=True)
+                        return
+
+                    def _update_progress(idx: int = i, name: str = entry.name) -> None:
+                        self._import_status.set(
+                            f"Downloading {idx+1}/{len(entries)}: {name}"
+                        )
+                        pb = getattr(self, "_import_progress", None)
+                        if pb:
+                            pb.configure(value=idx + 1)
+
+                    self._safe_after(0, _update_progress)
+                    try:
+                        data, fname = provider.download_profile(entry)
+                        if data and fname:
+                            fname = os.path.basename(fname).replace("\x00", "")
+                            if not fname or fname.startswith("."):
+                                fname = (
+                                    entry.name.replace(" ", "_").replace("/", "-")
+                                    + ".json"
+                                )
+
+                            # Save to each checked target directory
+                            primary_path = None
+                            for tdir in target_dirs:
+                                os.makedirs(tdir, exist_ok=True)
+                                dest = os.path.realpath(os.path.join(tdir, fname))
+                                # Avoid overwriting existing files (#14)
+                                base_dest, ext_part = os.path.splitext(dest)
+                                counter = 2
+                                while os.path.exists(dest):
+                                    dest = f"{base_dest}_{counter}{ext_part}"
+                                    counter += 1
+                                    if counter > 100:
+                                        raise ValueError(
+                                            f"Too many collisions: {fname}"
+                                        )
+                                if not dest.startswith(os.path.realpath(tdir) + os.sep):
+                                    raise ValueError(f"Path traversal blocked: {fname}")
+                                with open(dest, "wb") as f:
+                                    f.write(data)
+                                written_files.append(dest)
+                                saved_dirs.add(tdir)
+                                if primary_path is None:
+                                    primary_path = dest
+
+                            if primary_path:
+                                results.append((primary_path, None, provider.name))
+                            else:
+                                tmp_dir = tempfile.mkdtemp(prefix="ppc_import_")
+                                tmp_dirs.append(tmp_dir)
+                                tmp_path = os.path.join(tmp_dir, fname)
+                                with open(tmp_path, "wb") as f:
+                                    f.write(data)
+                                results.append((tmp_path, None, provider.name))
+                    except Exception as ex:
+                        errors.append(f"{entry.name}: {ex}")
+                        logger.warning("Download failed: %s", entry.name, exc_info=True)
+
+                try:
+                    if self.winfo_exists():
+                        self.after(
+                            0,
+                            lambda: self._on_download_complete(
+                                results, errors, list(saved_dirs), tmp_dirs
+                            ),
+                        )
+                    else:
+                        # Widget destroyed — clean up tmp_dirs directly
+                        for td in tmp_dirs:
+                            shutil.rmtree(td, ignore_errors=True)
+                except tk.TclError:
                     for td in tmp_dirs:
                         shutil.rmtree(td, ignore_errors=True)
-            except tk.TclError:
-                for td in tmp_dirs:
-                    shutil.rmtree(td, ignore_errors=True)
+            finally:
+                self._importing = False
 
         threading.Thread(target=_download, daemon=True).start()
 

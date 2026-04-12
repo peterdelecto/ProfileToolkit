@@ -71,7 +71,6 @@ class ComparePanel(tk.Frame):
 
         # Undo stack
         self._undo_stack: list[tuple] = []
-        self._pending_count = 0
         self._rebuild_generation = (
             0  # incremented on each load() to cancel stale deferred work
         )
@@ -96,10 +95,15 @@ class ComparePanel(tk.Frame):
         self._can_fast_filter = False  # True after a full render builds the cache
 
         # Per-pair state caches: keyed by sorted (source_path_a, source_path_b)
-        self._pair_undo_cache: dict[tuple[str, str], tuple[list, int, Counter]] = {}
+        self._pair_undo_cache: dict[tuple[str, str], tuple[list, Counter]] = {}
         self._pair_collapse_cache: dict[tuple[str, str], set[str]] = {}
 
         self._show_waiting_ui()
+
+    @property
+    def _pending_count(self) -> int:
+        """Derived from _pending_keys — no separate attribute to keep in sync."""
+        return sum(self._pending_keys.values())
 
     @staticmethod
     def _pair_cache_key(a: Any, b: Any) -> tuple[str, str]:
@@ -169,7 +173,6 @@ class ComparePanel(tk.Frame):
             if self._undo_stack:
                 self._pair_undo_cache[old_key] = (
                     list(self._undo_stack),
-                    self._pending_count,
                     Counter(self._pending_keys),
                 )
             # Always preserve collapse state
@@ -199,10 +202,9 @@ class ComparePanel(tk.Frame):
         new_key = self._pair_cache_key(profile_a, profile_b)
         cached = self._pair_undo_cache.pop(new_key, None)
         if cached:
-            self._undo_stack, self._pending_count, self._pending_keys = cached
+            self._undo_stack, self._pending_keys = cached
         else:
             self._undo_stack.clear()
-            self._pending_count = 0
             self._pending_keys = Counter()
         self._collapsed_sections = self._pair_collapse_cache.pop(new_key, set())
         self._filter_mode = "all"
@@ -263,7 +265,6 @@ class ComparePanel(tk.Frame):
         self._profile_b = None
         self._waiting = True
         self._undo_stack.clear()
-        self._pending_count = 0
         self._pending_keys = Counter()
         for child in self.winfo_children():
             child.destroy()
@@ -1259,14 +1260,14 @@ class ComparePanel(tk.Frame):
             self.after_cancel(self._chunk_render_id)
             self._chunk_render_id = None
         try:
-            self.__render_rows_inner()
+            self._render_rows_inner()
         except (KeyError, AttributeError, tk.TclError, ValueError) as exc:
             buf = io.StringIO()
             traceback.print_exc(file=buf)
             self._write_debug_log(buf.getvalue())
             logger.exception("_render_rows crashed: %s", exc)
 
-    def __render_rows_inner(self) -> None:
+    def _render_rows_inner(self) -> None:
         body = self._body
         canvas = self._canvas
         theme = self.theme
@@ -1839,10 +1840,9 @@ class ComparePanel(tk.Frame):
             arrow_ab_cell.grid(row=0, column=3, sticky="nsew")
             if is_diff:
                 delta_text = self._compute_delta(val_a, val_b)
-                key = json_key
                 if val_a is not None:
                     self._build_copy_arrow(
-                        arrow_ab_cell, key, "\u2192", theme.accent, canvas
+                        arrow_ab_cell, json_key, "\u2192", theme.accent, canvas
                     )
 
             # Column 4: Separator
@@ -1855,7 +1855,7 @@ class ComparePanel(tk.Frame):
             arrow_ba_cell.grid(row=0, column=5, sticky="nsew")
             if is_diff and val_b is not None:
                 self._build_copy_arrow(
-                    arrow_ba_cell, key, "\u2190", self._profile_b_fg, canvas
+                    arrow_ba_cell, json_key, "\u2190", self._profile_b_fg, canvas
                 )
 
             # Column 6: Value B + optional delta
@@ -2149,8 +2149,12 @@ class ComparePanel(tk.Frame):
 
         snapshot = {json_key: deepcopy(old_val), "_modified": was_modified}
 
+        # Both data and resolved_data must be mutated together: `data` is the
+        # canonical store written back to the slicer file, while `resolved_data`
+        # (if present) drives the compare-panel display after inheritance
+        # resolution.  Keeping them in sync avoids a stale diff view.
         target_profile.data[json_key] = deepcopy(new_val)
-        if target_profile.resolved_data:
+        if target_profile.resolved_data is not None:
             target_profile.resolved_data[json_key] = deepcopy(new_val)
         target_profile.modified = True
 
@@ -2161,7 +2165,6 @@ class ComparePanel(tk.Frame):
         )
 
         self._undo_stack.append((target_profile, json_key, old_val, was_modified))
-        self._pending_count += 1
         self._pending_keys[json_key] += 1
 
     def _copy_a_to_b(self, json_key: str) -> None:
@@ -2262,7 +2265,6 @@ class ComparePanel(tk.Frame):
             self._pending_keys[key] -= 1
             if self._pending_keys[key] <= 0:
                 del self._pending_keys[key]
-            self._pending_count = max(0, self._pending_count - 1)
 
     def _on_undo(self, event: Optional[tk.Event] = None) -> Optional[str]:
         """Undo the last copy operation (Ctrl+Z / Cmd+Z)."""
@@ -2274,7 +2276,7 @@ class ComparePanel(tk.Frame):
 
         # Restore the value
         profile.data[json_key] = deepcopy(old_val)
-        if profile.resolved_data:
+        if profile.resolved_data is not None:
             profile.resolved_data[json_key] = deepcopy(old_val)
         profile.modified = was_modified
 
@@ -2285,7 +2287,6 @@ class ComparePanel(tk.Frame):
         if len(profile.changelog) > start:
             profile.changelog.pop()
 
-        self._pending_count = max(0, self._pending_count - 1)
         self._pending_keys[json_key] -= 1
         if self._pending_keys[json_key] <= 0:
             del self._pending_keys[json_key]
@@ -2345,13 +2346,13 @@ class ComparePanel(tk.Frame):
                 # doesn't re-delete from the stale position.
                 self._changelog_start[id(profile)] = len(profile.changelog)
                 saved_profiles.add(id(profile))
-            except (OSError, PermissionError) as exc:
+            except OSError as exc:
                 messagebox.showerror(
                     "Save Failed",
                     f"Could not save {profile.name}:\n{exc}",
                     parent=self,
                 )
-                break
+                continue
 
         if saved_profiles:
             # Remove undo entries and pending keys only for profiles that saved
@@ -2366,11 +2367,9 @@ class ComparePanel(tk.Frame):
             for entry in self._undo_stack:
                 new_pending[entry[1]] += 1
             self._pending_keys = +new_pending  # unary + strips zero/negative counts
-            self._pending_count = sum(self._pending_keys.values())
 
         if not self._undo_stack:
             self._pending_keys.clear()
-            self._pending_count = 0
 
         self._refresh_diff()
         self._update_save_reset_state()
@@ -2404,7 +2403,6 @@ class ComparePanel(tk.Frame):
             save_profile_state(profile)
 
         self._pending_keys.clear()
-        self._pending_count = 0
         self._refresh_diff()
         self._update_save_reset_state()
 
@@ -2441,12 +2439,12 @@ class ComparePanel(tk.Frame):
         """
         data_a = (
             self._profile_a.resolved_data
-            if self._profile_a.resolved_data
+            if self._profile_a.resolved_data is not None
             else self._profile_a.data
         )
         data_b = (
             self._profile_b.resolved_data
-            if self._profile_b.resolved_data
+            if self._profile_b.resolved_data is not None
             else self._profile_b.data
         )
         self._data_a = data_a
@@ -2673,18 +2671,18 @@ class ComparePanel(tk.Frame):
                     _idx = real_idx
 
                     def _undo(p=_prof, idx=_idx) -> None:
-                        p.restore_snapshot(idx)
-                        # Pop from local undo stack if it matches profile AND changelog index
-                        if (
+                        # Check undo-stack match BEFORE restore_snapshot pops the changelog entry
+                        should_pop = (
                             self._undo_stack
                             and self._undo_stack[-1][0] is p
                             and len(p.changelog) - 1 == idx
-                        ):
+                        )
+                        p.restore_snapshot(idx)
+                        if should_pop:
                             _, undo_key, _, _ = self._undo_stack.pop()
                             self._pending_keys[undo_key] -= 1
                             if self._pending_keys[undo_key] <= 0:
                                 del self._pending_keys[undo_key]
-                        self._pending_count = max(0, self._pending_count - 1)
                         _rebuild_entries()
                         self._refresh_diff()
                         save_profile_state(p)

@@ -1,4 +1,7 @@
-import sys, os
+import os
+import sys
+import tempfile
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import unittest.mock as mock
@@ -27,15 +30,19 @@ tk_mock.ttk = ttk_mock
 tk_mock.filedialog = filedialog_mock
 tk_mock.messagebox = messagebox_mock
 
+
 # Make tk.Frame and tk.Toplevel real (stub) classes so that subclasses like
 # ProfileDetailPanel are real Python types and can be instantiated with object.__new__().
 class _FakeTkBase:
     def __init__(self, *args, **kwargs):
         pass
+
     def winfo_toplevel(self):
         return self
+
     def bind(self, *args, **kwargs):
         pass
+
 
 tk_mock.Frame = _FakeTkBase
 tk_mock.Toplevel = _FakeTkBase
@@ -53,7 +60,11 @@ from profile_toolkit.constants import _ENUM_LABEL_TO_JSON
 
 
 def make_profile(data=None):
-    return Profile(data or {"name": "test", "layer_height": 0.2}, "/tmp/test.json", "json")
+    return Profile(
+        data or {"name": "test", "layer_height": 0.2},
+        os.path.join(tempfile.gettempdir(), "test.json"),
+        "json",
+    )
 
 
 def _make_panel(profile=None):
@@ -78,26 +89,26 @@ def test_undo_no_phantom_entry():
     key = "layer_height"
     original = 0.2
     var = mock.MagicMock()
-    var.get.return_value = "0.2"         # user typed same value back
+    var.get.return_value = "0.2"  # user typed same value back
     panel._edit_vars[key] = (var, original, "entry")
 
     panel._commit_single(key)
 
-    assert len(panel._undo_stack) == 0, (
-        f"Undo stack should be empty after a no-change commit; got {panel._undo_stack}"
-    )
+    assert (
+        len(panel._undo_stack) == 0
+    ), f"Undo stack should be empty after a no-change commit; got {panel._undo_stack}"
     assert panel._pre_edit_modified is None
 
 
 def test_undo_does_not_clear_conversion_modified():
     """Undoing parameter edit must not clear modified=True set by a conversion."""
     p = make_profile({"name": "test", "layer_height": 0.2})
-    p.modified = True   # set by make_universal() / retarget() — not by a param edit
+    p.modified = True  # set by make_universal() / retarget() — not by a param edit
 
     panel = _make_panel(profile=p)
 
     # Simulate one real edit: push an undo entry + take pre_edit snapshot
-    panel._pre_edit_modified = True        # was already modified before edit
+    panel._pre_edit_modified = True  # was already modified before edit
     panel._undo_stack.append(("layer_height", 0.2))
     p.data["layer_height"] = 0.3
     p.modified = True
@@ -109,7 +120,7 @@ def test_undo_does_not_clear_conversion_modified():
         "After undoing a param edit on an already-converted profile, "
         "modified must remain True"
     )
-    assert panel._pre_edit_modified is None   # sentinel cleaned up
+    assert panel._pre_edit_modified is None  # sentinel cleaned up
     assert len(panel._undo_stack) == 0
 
 
@@ -149,9 +160,9 @@ def test_enum_label_to_json_round_trip():
     label_to_json = _ENUM_LABEL_TO_JSON
     # wall_generator: "arachne" → "Arachne" forward, "Arachne" → "arachne" reverse
     assert "wall_generator" in label_to_json, "wall_generator must have reverse lookup"
-    assert label_to_json["wall_generator"].get("Arachne") == "arachne", (
-        "Reverse lookup 'Arachne' → 'arachne' must be correct"
-    )
+    assert (
+        label_to_json["wall_generator"].get("Arachne") == "arachne"
+    ), "Reverse lookup 'Arachne' → 'arachne' must be correct"
     assert label_to_json["wall_generator"].get("Classic") == "classic"
     # seam_position
     assert label_to_json["seam_position"].get("Nearest") == "nearest"
@@ -160,4 +171,5 @@ def test_enum_label_to_json_round_trip():
 
 if __name__ == "__main__":
     import pytest
+
     pytest.main([__file__, "-v"])

@@ -1,32 +1,14 @@
 #!/usr/bin/env python3
-"""
-Build Script for Profile Toolkit
-=========================================
-Creates a standalone, distributable application bundle.
+"""Build Script for Profile Toolkit.
 
-Usage:
-    python3 build.py
-
-This script:
-  1. Installs PyInstaller if not present
-  2. Builds a single-folder app bundle
-  3. On macOS: creates a .app that opens from Finder
-  4. On Windows: creates a .exe
-  5. On Linux: creates a standalone binary
-
-The resulting app requires NO Python installation on the target machine.
-
-Requirements:
-  - Python 3.8+ with tkinter (used only for building, not on target)
-  - pip (for installing PyInstaller)
-  - Internet connection (first run only, to download PyInstaller)
+Creates a standalone app bundle via PyInstaller for macOS, Windows, or Linux.
+Usage: python3 build.py
 """
 
-import subprocess
-import sys
 import os
 import platform
-import shutil
+import subprocess
+import sys
 
 APP_NAME = "Profile Toolkit"
 SCRIPT = "ProfileToolkit.py"
@@ -79,6 +61,8 @@ def build_macos():
     # Add icon if available
     if os.path.exists(ICON_MAC):
         cmd.extend(["--icon", ICON_MAC])
+    else:
+        print(f"  WARNING: Icon file not found: {ICON_MAC}")
 
     # Bundle PNG icon sets for the UI
     for size in ("16x16", "24x24"):
@@ -100,7 +84,9 @@ def build_macos():
             cmd.extend(["--add-data", f"{icon_path}{os.pathsep}resources"])
 
     # Bundle harvested profiles (if present)
-    bundle_dir = os.path.join(os.path.dirname(__file__), "bundled_profiles")
+    bundle_dir = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "bundled_profiles"
+    )
     if os.path.isdir(bundle_dir):
         cmd.extend(["--add-data", f"{bundle_dir}{os.pathsep}bundled_profiles"])
 
@@ -139,6 +125,8 @@ def build_windows():
 
     if os.path.exists(ICON_WIN):
         cmd.extend(["--icon", ICON_WIN])
+    else:
+        print(f"  WARNING: Icon file not found: {ICON_WIN}")
 
     # Bundle PNG icon sets for the UI
     for size in ("16x16", "24x24"):
@@ -160,7 +148,9 @@ def build_windows():
             cmd.extend(["--add-data", f"{icon_path}{os.pathsep}resources"])
 
     # Bundle harvested profiles (if present)
-    bundle_dir = os.path.join(os.path.dirname(__file__), "bundled_profiles")
+    bundle_dir = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "bundled_profiles"
+    )
     if os.path.isdir(bundle_dir):
         cmd.extend(["--add-data", f"{bundle_dir}{os.pathsep}bundled_profiles"])
 
@@ -194,6 +184,8 @@ def build_linux():
 
     if os.path.exists(ICON_LINUX):
         cmd.extend(["--icon", ICON_LINUX])
+    else:
+        print(f"  WARNING: Icon file not found: {ICON_LINUX}")
 
     # Bundle PNG icon sets for the UI
     for size in ("16x16", "24x24"):
@@ -215,7 +207,9 @@ def build_linux():
             cmd.extend(["--add-data", f"{icon_path}{os.pathsep}resources"])
 
     # Bundle harvested profiles (if present)
-    bundle_dir = os.path.join(os.path.dirname(__file__), "bundled_profiles")
+    bundle_dir = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "bundled_profiles"
+    )
     if os.path.isdir(bundle_dir):
         cmd.extend(["--add-data", f"{bundle_dir}{os.pathsep}bundled_profiles"])
 

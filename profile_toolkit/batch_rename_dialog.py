@@ -6,12 +6,11 @@ import logging
 import os
 import tkinter as tk
 from tkinter import ttk
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 from .constants import UI_FONT, _PLATFORM
 from .theme import Theme
 from .models import Profile
-from .utils import bind_scroll, lighten_color
 from .widgets import make_btn
 
 logger = logging.getLogger(__name__)
@@ -50,6 +49,7 @@ class BatchRenameDialog(tk.Toplevel):
             ("layer_height", "Layer height"),
             ("filename", "Original filename"),
         ]
+        self._trace_ids: list[tuple[tk.Variable, str]] = []
         self._field_snapshot = {}
         for p in profiles:
             snap = {}
@@ -195,7 +195,6 @@ class BatchRenameDialog(tk.Toplevel):
         )
 
         self._find_entry = find_entry
-        self._trace_ids = getattr(self, "_trace_ids", [])
         self._trace_ids.append(
             (
                 self._simple_mode_var,
@@ -360,7 +359,7 @@ class BatchRenameDialog(tk.Toplevel):
             bg=theme.bg3,
             fg=theme.fg,
             font=(UI_FONT, 12),
-            height=min(6, len(self.profiles)),
+            height=max(1, min(6, len(self.profiles))),
             wrap="none",
             relief="flat",
             bd=4,
@@ -404,7 +403,7 @@ class BatchRenameDialog(tk.Toplevel):
                     return
             renamed = 0
             for p in self.profiles:
-                new_name = Profile.sanitize_name(self._compute_name(p))
+                new_name = self._compute_name(p)
                 if new_name and new_name != p.name:
                     old_name = p.name
                     snapshot = {"name": old_name, "_modified": p.modified}

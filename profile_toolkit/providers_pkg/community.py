@@ -12,6 +12,7 @@ from ..utils import guess_material, guess_brand, parse_printer_nozzle
 logger = logging.getLogger(__name__)
 
 _SKIP_DIRS = {".github", "__pycache__", ".git"}
+_NON_FILAMENT_DIRS = {"process", "machine", "printer", "print"}
 
 
 class CommunityPresetsProvider(OnlineProvider):
@@ -34,38 +35,34 @@ class CommunityPresetsProvider(OnlineProvider):
         self._status_fn = status_fn
         entries = []
         repo = "DRIgnazGortngschirl/bambulab-studio-orca-slicer-presets"
-        for profile_type in ("filament",):
-            self._report(f"Fetching {profile_type} profiles...")
-            try:
-                nodes = self._fetch_git_tree(repo, profile_type)
-            except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError) as e:
-                logger.error(
-                    "Failed to fetch %s from %s: %s", profile_type, self.name, e
-                )
+        profile_type = "filament"
+        self._report(f"Fetching {profile_type} profiles...")
+        try:
+            nodes = self._fetch_git_tree(repo, profile_type)
+        except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError) as e:
+            logger.error("Failed to fetch %s from %s: %s", profile_type, self.name, e)
+            return entries
+        for node in nodes:
+            path = node["path"]
+            if not path.endswith(".json"):
                 continue
-            for node in nodes:
-                path = node["path"]
-                if not path.endswith(".json"):
-                    continue
-                fname = path.rsplit("/", 1)[-1].replace(".json", "")
-                printer, nozzle = "", ""
-                if " @" in fname:
-                    printer, nozzle = parse_printer_nozzle(fname.split(" @", 1)[1])
-                entry = OnlineProfileEntry(
-                    name=fname,
-                    material=(
-                        guess_material(fname) if profile_type == "filament" else ""
-                    ),
-                    brand=guess_brand(fname),
-                    printer=printer,
-                    slicer="OrcaSlicer",
-                    url=f"https://raw.githubusercontent.com/{repo}/main/{path}",
-                    description=f"Community preset ({profile_type}) — {fname}",
-                    provider_id=self.id,
-                    metadata={"profile_type": profile_type},
-                )
-                entry.nozzle = nozzle
-                entries.append(entry)
+            fname = path.rsplit("/", 1)[-1].replace(".json", "")
+            printer, nozzle = "", ""
+            if " @" in fname:
+                printer, nozzle = parse_printer_nozzle(fname.split(" @", 1)[1])
+            entry = OnlineProfileEntry(
+                name=fname,
+                material=(guess_material(fname) if profile_type == "filament" else ""),
+                brand=guess_brand(fname),
+                printer=printer,
+                slicer="OrcaSlicer",
+                url=f"https://raw.githubusercontent.com/{repo}/main/{path}",
+                description=f"Community preset ({profile_type}) — {fname}",
+                provider_id=self.id,
+                metadata={"profile_type": profile_type},
+            )
+            entry.nozzle = nozzle
+            entries.append(entry)
         self._report(f"Found {len(entries)} community presets")
         return entries
 
@@ -99,9 +96,6 @@ class SantanachiaProvider(OnlineProvider):
         except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError) as e:
             logger.error("Failed to fetch catalog from %s: %s", self.name, e)
             return []
-
-        # Directories that indicate non-filament profiles
-        _NON_FILAMENT_DIRS = {"process", "machine", "printer", "print"}
 
         entries = []
         for node in data["tree"]:
@@ -190,7 +184,8 @@ class DgaucheFilamentLibProvider(OnlineProvider):
             printer = parts[0] if len(parts) >= 2 else ""
 
             # Skip process/machine profiles — only want filament
-            if "Process" in fname or "Machine" in fname:
+            fname_lower = fname.lower()
+            if "process" in fname_lower or "machine" in fname_lower:
                 continue
 
             entries.append(

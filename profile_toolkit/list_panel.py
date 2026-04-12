@@ -114,6 +114,19 @@ class ProfileListPanel(tk.Frame):
             self._filter_var.trace_remove("write", self._filter_trace_id)
         except (tk.TclError, ValueError):
             pass
+        # Destroy tooltip and cancel pending tooltip timer
+        if self._tree_tip_after is not None:
+            try:
+                self.after_cancel(self._tree_tip_after)
+            except (tk.TclError, ValueError):
+                pass
+            self._tree_tip_after = None
+        if self._tree_tip is not None:
+            try:
+                self._tree_tip.destroy()
+            except tk.TclError:
+                pass
+            self._tree_tip = None
 
     def _set_initial_sash(self) -> None:
         """Position sash at 40% of panel width on first render."""
@@ -425,14 +438,23 @@ class ProfileListPanel(tk.Frame):
             "OrcaSlicer": (theme.badge_orca, "O"),
         }
         size = 20
+        transparent = ""  # transparent pixel for PhotoImage row data
         for origin, (color, letter) in specs.items():
             img = tk.PhotoImage(width=size, height=size)
             center_x, center_y, radius = size // 2, size // 2, size // 2 - 1
+            radius_sq = radius * radius
+            # Build circle rows using row-string approach (much faster than per-pixel put)
+            circle_rows = []
             for y in range(size):
+                dy = y - center_y
+                row_pixels = []
                 for x in range(size):
-                    delta_x, delta_y = x - center_x, y - center_y
-                    if delta_x * delta_x + delta_y * delta_y <= radius * radius:
-                        img.put(color, (x, y))
+                    dx = x - center_x
+                    row_pixels.append(
+                        color if dx * dx + dy * dy <= radius_sq else transparent
+                    )
+                circle_rows.append("{" + " ".join(row_pixels) + "}")
+            img.put(" ".join(circle_rows))
             # Draw letter (white) -- simple 5x7 bitmap font for P, B, O
             glyphs = {
                 "P": [
@@ -466,12 +488,17 @@ class ProfileListPanel(tk.Frame):
             glyph = glyphs.get(letter, [])
             glyph_w, glyph_h = 5, 7
             glyph_ox, glyph_oy = center_x - glyph_w // 2, center_y - glyph_h // 2
-            for glyph_y, row_str in enumerate(glyph):
-                for glyph_x, ch in enumerate(row_str):
+            for glyph_y, glyph_row in enumerate(glyph):
+                row_data = []
+                for glyph_x, ch in enumerate(glyph_row):
                     if ch == "#":
                         px, py = glyph_ox + glyph_x, glyph_oy + glyph_y
                         if 0 <= px < size and 0 <= py < size:
-                            img.put("#FFFFFF", (px, py))
+                            row_data.append((px, py))
+                if row_data:
+                    # Batch glyph row: one put per glyph row
+                    for px, py in row_data:
+                        img.put("{#FFFFFF}", to=(px, py))
             badges[origin] = img
         return badges
 
@@ -1118,11 +1145,7 @@ class ProfileListPanel(tk.Frame):
                 self.profiles.pop(i)
         self._refresh_list()
         self.detail._show_placeholder()
-        if (
-            hasattr(self, "_mode")
-            and self._mode == "convert"
-            and hasattr(self, "convert_detail")
-        ):
+        if self._mode == "convert" and hasattr(self, "convert_detail"):
             self.convert_detail.clear()
         # Notify app that selection changed (clears comparison cache)
         if self.app and self.profile_type == "filament":
@@ -1141,9 +1164,11 @@ class ProfileListPanel(tk.Frame):
             return
         # Collect unique file paths
         paths = []
+        seen_paths: set[str] = set()
         for profile in selected:
             if profile.source_path and os.path.isfile(profile.source_path):
-                if profile.source_path not in [x[1] for x in paths]:
+                if profile.source_path not in seen_paths:
+                    seen_paths.add(profile.source_path)
                     paths.append((profile.name, profile.source_path))
 
         if not paths:
@@ -1188,7 +1213,7 @@ class ProfileListPanel(tk.Frame):
             try:
                 fpath = os.path.realpath(fpath)
                 # Reject paths outside user's home or containing suspicious traversal
-                if not os.path.realpath(fpath).startswith(
+                if not fpath.startswith(
                     os.path.realpath(os.path.expanduser("~")) + os.sep
                 ):
                     errors.append(
@@ -1211,11 +1236,7 @@ class ProfileListPanel(tk.Frame):
                 self.profiles.pop(i)
             self._refresh_list()
             self.detail._show_placeholder()
-            if (
-                hasattr(self, "_mode")
-                and self._mode == "convert"
-                and hasattr(self, "convert_detail")
-            ):
+            if self._mode == "convert" and hasattr(self, "convert_detail"):
                 self.convert_detail.clear()
 
         if errors:
@@ -1230,11 +1251,7 @@ class ProfileListPanel(tk.Frame):
             self.profiles.clear()
             self._refresh_list()
             self.detail._show_placeholder()
-            if (
-                hasattr(self, "_mode")
-                and self._mode == "convert"
-                and hasattr(self, "convert_detail")
-            ):
+            if self._mode == "convert" and hasattr(self, "convert_detail"):
                 self.convert_detail.clear()
             # Notify app that selection is now empty (cache must clear)
             if self.app and self.profile_type == "filament":

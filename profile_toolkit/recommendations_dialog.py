@@ -4,25 +4,19 @@ from __future__ import annotations
 
 import logging
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import messagebox
 from typing import Any, Callable, Optional
 
 from .constants import (
     FILAMENT_LAYOUT,
-    _IDENTITY_KEYS,
-    _VALUE_TRUNCATE_SHORT,
     UI_FONT,
-    RECOMMENDATIONS,
 )
 from .theme import Theme
 from .models import Profile
 from .utils import (
-    bind_scroll,
     detect_material,
     get_recommendation,
-    get_recommendation_info,
     check_value_range,
-    get_enum_human_label,
 )
 from .widgets import ScrollableFrame, make_btn
 
@@ -408,25 +402,3 @@ class RecommendationsDialog:
                 parent = getattr(parent, "master", None)
         except (tk.TclError, AttributeError) as exc:
             logger.debug("Could not refresh detail panel: %s", exc)
-
-    def _compute_stats(self, data: dict, material: str) -> dict[str, int]:
-        total = ok = low = high = 0
-        # Only check keys defined in FILAMENT_LAYOUT (not metadata/identity keys)
-        layout_keys = set()
-        for sections in FILAMENT_LAYOUT.values():
-            for params in sections.values():
-                for entry in params:
-                    layout_keys.add(entry[0])
-        for key in layout_keys:
-            if key not in data:
-                continue
-            status = check_value_range(key, data[key], material)
-            if status is not None:
-                total += 1
-                if status == "ok":
-                    ok += 1
-                elif status == "low":
-                    low += 1
-                elif status == "high":
-                    high += 1
-        return {"total": total, "ok": ok, "low": low, "high": high}

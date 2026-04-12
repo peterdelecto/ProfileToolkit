@@ -9,8 +9,6 @@ import re
 import xml.etree.ElementTree as ET
 import zipfile
 import zlib
-
-_RE_AT_SUFFIX = re.compile(r"\s*@.*$")
 from copy import deepcopy
 from datetime import datetime
 from typing import Optional
@@ -23,6 +21,8 @@ class UnsupportedFormatError(ValueError):
 class BundleDetectedError(ValueError):
     """Raised when a file is a Prusa bundle requiring the wizard flow."""
 
+
+_RE_AT_SUFFIX = re.compile(r"\s*@.*$")
 
 from .constants import (
     _ALL_FILAMENT_KEYS,
@@ -41,6 +41,8 @@ from .constants import (
 )
 
 logger = logging.getLogger(__name__)
+
+_BRANDS_BY_LENGTH = sorted(_KNOWN_FILAMENT_BRANDS, key=len, reverse=True)
 
 
 def _decode_json_bytes(raw: bytes) -> Optional[str]:
@@ -101,8 +103,8 @@ class PresetIndex:
         self._resolve_cache: dict[str, tuple] = (
             {}
         )  # name → (resolved_data, inherited_keys, chain)
-        self.unresolved_profiles: list[str] = (
-            []
+        self.unresolved_profiles: set[str] = (
+            set()
         )  # names that couldn't resolve inheritance
 
     @property
@@ -278,8 +280,7 @@ class PresetIndex:
             # Track unresolved for user-facing warnings
             if profile.inherits:
                 pname = profile.data.get("name", profile.inherits)
-                if pname not in self.unresolved_profiles:
-                    self.unresolved_profiles.append(pname)
+                self.unresolved_profiles.add(pname)
             if cache_key:
                 self._resolve_cache[cache_key] = (None, set(), [])
             return
@@ -574,13 +575,13 @@ class Profile:
         name = self.data.get("name", "")
         base = name.split("@")[0].strip() if "@" in name else name
         base_lower = base.lower()
-        for v in sorted(_KNOWN_FILAMENT_BRANDS, key=len, reverse=True):
+        for v in _BRANDS_BY_LENGTH:
             if base_lower.startswith(v.lower()):
                 return v
 
         inherits = self.data.get("inherits", "")
         if inherits:
-            for v in sorted(_KNOWN_FILAMENT_BRANDS, key=len, reverse=True):
+            for v in _BRANDS_BY_LENGTH:
                 if inherits.lower().startswith(v.lower()):
                     return v
 
@@ -846,8 +847,6 @@ class Profile:
             - missing_keys: target-specific params not in source (need filling)
             - warnings: informational messages about conversion caveats
         """
-        from .constants import FILAMENT_LAYOUT, _IDENTITY_KEYS
-
         warnings: list[str] = []
 
         # Flatten: merge resolved_data + data so we're self-contained
@@ -1174,7 +1173,10 @@ class ProfileEngine:
                     f"slicer profiles"
                 )
             return profiles
-        return []
+        raise ValueError(
+            f"{os.path.basename(path)} contains unsupported JSON type "
+            f"(expected object or array)"
+        )
 
     @staticmethod
     def extract_from_3mf(path: str) -> list:
@@ -1613,7 +1615,7 @@ class ProfileEngine:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             for line in f:
                 # Fast path: skip non-header lines in irrelevant sections
-                if line[0] != "[":
+                if not line or line[0] != "[":
                     if skip_section or current_bucket is None:
                         continue
                     stripped = line.strip()
@@ -1692,7 +1694,7 @@ class ProfileEngine:
         """
         if (
             _depth > MAX_INHERITANCE_DEPTH
-            or name in (_seen or set())
+            or name in (_seen if _seen is not None else set())
             or name not in all_filaments
         ):
             return {}

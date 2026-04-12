@@ -130,7 +130,7 @@ class ColorFabbProvider(OnlineProvider):
                 printer, nozzle = parse_printer_nozzle(fname.split(" @", 1)[1])
             entry = OnlineProfileEntry(
                 name=fname,
-                material=guess_material(fname) if profile_type == "filament" else "",
+                material=guess_material(fname),
                 brand="colorFabb",
                 printer=printer,
                 slicer=slicer,
@@ -261,7 +261,8 @@ class PrusaResearchProvider(OnlineProvider):
         if name.lower().startswith("generic"):
             return "Generic"
         # First word as fallback
-        return name.split()[0] if name.split() else ""
+        words = name.split()
+        return words[0] if words else ""
 
     def _catalog_from_bundle(self) -> list[OnlineProfileEntry]:
         """Build catalog from bundled .ini files with Prusa-specific parsing."""

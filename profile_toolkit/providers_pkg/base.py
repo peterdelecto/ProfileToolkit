@@ -8,6 +8,8 @@ import os
 import re
 import ssl
 import sys
+import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -88,7 +90,7 @@ class OnlineProvider:
         return host
 
     _ssl_ctx: Optional[ssl.SSLContext] = None  # lazily created SSL context
-    _ssl_lock = __import__("threading").Lock()
+    _ssl_lock = threading.Lock()
     _ssl_degraded_flag: bool = (
         False  # class-level: set True when SSL verification disabled
     )
@@ -129,8 +131,6 @@ class OnlineProvider:
 
     def _save_catalog_cache(self, entries: list[OnlineProfileEntry]) -> None:
         """Save catalog to disk cache."""
-        import time
-
         data = {
             "timestamp": time.time(),
             "entries": [
@@ -156,8 +156,6 @@ class OnlineProvider:
 
     def _load_catalog_cache(self) -> Optional[list[OnlineProfileEntry]]:
         """Load catalog from disk cache if fresh enough."""
-        import time
-
         path = self._catalog_cache_path()
         if not path.exists():
             return None
@@ -242,7 +240,7 @@ class OnlineProvider:
     # ------------------------------------------------------------------
 
     _manifest_cache: Optional[dict] = None  # class-level cache, read once
-    _manifest_lock = __import__("threading").Lock()
+    _manifest_lock = threading.Lock()
 
     @classmethod
     def _load_manifest(cls) -> dict:
@@ -376,7 +374,7 @@ class OnlineProvider:
             try:
                 json.loads(text)
             except json.JSONDecodeError as e:
-                raise ValueError(f"Profile is not valid JSON: {filename}: {e}")
+                raise ValueError(f"Profile is not valid JSON: {filename}: {e}") from e
 
     def _suggest_filename(self, entry: OnlineProfileEntry) -> str:
         """Generate a safe filename from the entry."""
@@ -466,8 +464,6 @@ class OnlineProvider:
         Reads in 64KB chunks to release the GIL regularly and allow
         cancellation checks between chunks.
         """
-        import time
-
         _MAX = max_size or (50 * 1024 * 1024)
         _CHUNK = 64 * 1024
         # Encode spaces and special chars in URL path (GitHub download_urls
@@ -483,6 +479,7 @@ class OnlineProvider:
                 raise ValueError(f"Response too large ({total} bytes, limit {_MAX})")
             chunks: list[bytes] = []
             received = 0
+            chunk_count = 0
             while True:
                 if cancel_check and cancel_check():
                     raise InterruptedError("Download cancelled")
@@ -491,14 +488,16 @@ class OnlineProvider:
                     break
                 chunks.append(chunk)
                 received += len(chunk)
+                chunk_count += 1
                 if received > _MAX:
                     raise ValueError(f"Response too large (>{_MAX} bytes)")
                 # Report download progress if total size is known
                 if total > 0 and received % (256 * 1024) < _CHUNK:
                     pct = min(99, int(received * 100 / total))
                     self._report(f"Downloading... {pct}% ({received // 1024}KB)")
-                # Yield GIL so main thread can process events
-                time.sleep(0)
+                # Yield GIL every 64 chunks so main thread can process events
+                if chunk_count % 64 == 0:
+                    time.sleep(0)
             return b"".join(chunks)
 
     def _fetch_git_tree(
@@ -532,6 +531,8 @@ class OnlineProvider:
         self, url: str, timeout: int = 15, max_size: int = 0, retries: int = 1
     ) -> dict | list:
         """Fetch URL and parse as JSON. Retries once on transient errors."""
+        if retries < 0:
+            retries = 0
         limit = max_size or self._MAX_PROFILE_SIZE
         req_headers = {
             "User-Agent": HTTP_USER_AGENT,
@@ -554,18 +555,14 @@ class OnlineProvider:
                         "GitHub API rate limit reached. Try again later."
                     )
                 if e.code >= 500 and attempt < retries:
-                    import time as _time
-
                     delay = 2 * (2**attempt)  # exponential backoff: 2s, 4s, 8s...
-                    _time.sleep(delay)
+                    time.sleep(delay)
                     last_err = e
                     continue
                 raise
             except (urllib.error.URLError, OSError) as e:
                 if attempt < retries:
-                    import time as _time
-
-                    _time.sleep(2)
+                    time.sleep(2)
                     last_err = e
                     continue
                 raise

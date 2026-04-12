@@ -65,6 +65,7 @@ profile_toolkit/
   list_panel.py                Profile list with filtering/sorting
   compare_panel.py             Side-by-side comparison
   convert_panel.py             Cross-slicer conversion
+  about_dialog.py              About dialog with scrollable credits
   batch_rename_dialog.py       Batch rename with patterns
   recommendations_dialog.py    Parameter recommendations
   online_import_wizard.py      Online profile browser

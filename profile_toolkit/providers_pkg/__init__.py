@@ -9,8 +9,16 @@ Providers are grouped by category:
 
 from .base import OnlineProfileEntry, OnlineProvider
 from .manufacturers import PolymakerProvider, ColorFabbProvider, PrusaResearchProvider
-from .databases import SimplyPrintDBProvider, OrcaSlicerLibraryProvider, BambuStudioOfficialProvider
-from .community import CommunityPresetsProvider, SantanachiaProvider, DgaucheFilamentLibProvider
+from .databases import (
+    SimplyPrintDBProvider,
+    OrcaSlicerLibraryProvider,
+    BambuStudioOfficialProvider,
+)
+from .community import (
+    CommunityPresetsProvider,
+    SantanachiaProvider,
+    DgaucheFilamentLibProvider,
+)
 
 # Provider registry — only sources with verified direct-download URLs.
 # Sources removed (URLs were HTML pages, not downloadable profiles):
@@ -27,7 +35,7 @@ ALL_PROVIDERS: list[OnlineProvider] = [
     DgaucheFilamentLibProvider(),
 ]
 
-PROVIDER_CATEGORIES: list[str] = ["Manufacturer", "Community"]
+PROVIDER_CATEGORIES: list[str] = ["Manufacturer", "Database", "Community"]
 
 __all__ = [
     "OnlineProfileEntry",

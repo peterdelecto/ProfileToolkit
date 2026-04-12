@@ -89,6 +89,6 @@ class Theme:
         self.recommended = "#4DB6AC"  # Teal — "Recommended for" labels (5.5:1 on bg3)
         self.note = "#FF8C42"  # Orange — advisory notes in popups (4.5:1 AA on bg4)
 
-        # --- Legacy aliases ---
+        # --- Legacy aliases (TODO: remove in v2) ---
         self.accent2 = self.secondary  # Backwards compat (was accent_hover)
         self.locked = self.error  # Backwards compat

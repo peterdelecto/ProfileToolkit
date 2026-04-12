@@ -45,6 +45,12 @@ from .widgets import (
 
 logger = logging.getLogger(__name__)
 
+# Limits for undo stack and input validation
+_MAX_UNDO = 200
+_MAX_INPUT_CHARS = 10_000
+_MAX_INT_ABS = 10**9
+_MAX_FLOAT_ABS = 1e15
+
 
 def _get_profile_list_panel_class():
     """Lazy import to avoid circular dependency with list_panel."""
@@ -55,8 +61,6 @@ def _get_profile_list_panel_class():
 
 def _find_ancestor(widget: tk.Widget, ancestor_type: type) -> Optional[Any]:
     """Walk up the widget tree to find the nearest ancestor of the given type.
-
-    Fixes audit #37: Extract utility to replace repeated parent-tree-walk pattern.
 
     Args:
         widget: Starting widget to search from.
@@ -111,17 +115,15 @@ class ProfileDetailPanel(tk.Frame):
         self._canvas_window = None
         self._current_material = "General"
         self._indicator_frames = {}
+        self._inherited_keys: set = set()
+        self._display_data: dict = {}
+        self._commit_in_progress: bool = False
+        self._changelog_dialog: Optional[tk.Toplevel] = None
+        self._enum_measure_font: Optional[tkfont.Font] = None
         self._show_placeholder()
-
-        self.bind("<Destroy>", self._on_destroy_detail_panel, add="+")
 
         # Note: Ctrl+Z / Cmd+Z is bound by App._bind_global_undo which
         # dispatches to the correct panel (ComparePanel or DetailPanel).
-
-    def _on_destroy_detail_panel(self, event=None) -> None:
-        """Clean up traces on panel destruction."""
-        if event and event.widget is not self:
-            return
 
     def _show_placeholder(self, text: Optional[str] = None) -> None:
         for w in self.winfo_children():
@@ -378,6 +380,9 @@ class ProfileDetailPanel(tk.Frame):
         row2.pack(fill="x", pady=(2, 0))
 
         # Status text (colored, no bg box)
+        # Note: profile.modified means the printer lock was removed, making
+        # the profile universal. The field name is misleading but the logic
+        # is correct for the domain — "modified" == "made universal".
         if profile.modified:
             status_text = "Universal"
             status_fg = theme.modified
@@ -497,8 +502,14 @@ class ProfileDetailPanel(tk.Frame):
             ).pack(side="left")
 
     def _show_changelog(self, profile: Profile) -> None:
+        # Prevent duplicate changelog windows
+        if self._changelog_dialog is not None and self._changelog_dialog.winfo_exists():
+            self._changelog_dialog.lift()
+            self._changelog_dialog.focus_force()
+            return
         theme = self.theme
         dlg = tk.Toplevel(self)
+        self._changelog_dialog = dlg
         dlg.title(f"Change History \u2014 {profile.name}")
         dlg.configure(bg=theme.bg)
         dlg.resizable(True, True)
@@ -1290,7 +1301,7 @@ class ProfileDetailPanel(tk.Frame):
             return
         was_in_data = key in self.current_profile.data
         self._undo_stack.append((key, self.current_profile.data.get(key), was_in_data))
-        if len(self._undo_stack) > 200:
+        if len(self._undo_stack) > _MAX_UNDO:
             self._undo_stack.pop(0)
         self.current_profile.data[key] = value
         if self.current_profile.resolved_data is not None:
@@ -1404,7 +1415,9 @@ class ProfileDetailPanel(tk.Frame):
 
         value_var = tk.StringVar(value=current_label)
         # Fit dropdown width to longest option text using font measurement
-        cb_font = tkfont.Font(family=UI_FONT, size=13)
+        if self._enum_measure_font is None:
+            self._enum_measure_font = tkfont.Font(family=UI_FONT, size=13)
+        cb_font = self._enum_measure_font
         max_px = max((cb_font.measure(hl) for hl in human_labels), default=80)
         avg_char_px = max(cb_font.measure("0"), 1)
         cb_width = max(max_px // avg_char_px + 3, 14)
@@ -1430,19 +1443,21 @@ class ProfileDetailPanel(tk.Frame):
                 new_val = [new_json_val] * len(original_value)
             else:
                 new_val = new_json_val
-            if new_val != original_value:
+            # Use current profile value for undo (not the original from bind time)
+            current_value = self.current_profile.data.get(key, original_value)
+            if new_val != current_value:
                 if self._pre_edit_modified is None:
                     self._pre_edit_modified = self.current_profile.modified
                 was_in_data = key in self.current_profile.data
-                self._undo_stack.append((key, original_value, was_in_data))
-                if len(self._undo_stack) > 200:
+                self._undo_stack.append((key, current_value, was_in_data))
+                if len(self._undo_stack) > _MAX_UNDO:
                     self._undo_stack.pop(0)
                 self.current_profile.data[key] = new_val
                 if self.current_profile.resolved_data is not None:
                     self.current_profile.resolved_data[key] = new_val
                 self.current_profile.modified = True
                 self.current_profile.log_change(
-                    "Parameter edited", f"{key}: {original_value} \u2192 {new_val}"
+                    "Parameter edited", f"{key}: {current_value} \u2192 {new_val}"
                 )
                 self._edit_vars[key] = (value_var, new_val, "combo")
                 self._update_indicator(key, new_val)
@@ -1487,58 +1502,60 @@ class ProfileDetailPanel(tk.Frame):
         self._edit_vars[key] = (value_var, original_value, "entry")
 
         def finish_edit(event: Optional[tk.Event] = None) -> None:
-            if getattr(self, "_commit_in_progress", False):
+            if self._commit_in_progress:
                 return
             self._commit_in_progress = True
-            raw_text = value_var.get().strip()
-            self._commit_single(key)
-            new_val = self.current_profile.data.get(key, original_value)
-            new_display = self._format_value(new_val, key=key)
-            input_rejected = (
-                new_val == original_value
-                and raw_text != self._format_value(original_value, key=key)
-            )
-            entry.destroy()
-            if input_rejected:
-                container.configure(highlightbackground=theme.error)
-                container.after(
-                    800,
-                    lambda c=container: (
-                        c.configure(highlightbackground=theme.border)
-                        if c.winfo_exists()
-                        else None
+            try:
+                raw_text = value_var.get().strip()
+                self._commit_single(key)
+                new_val = self.current_profile.data.get(key, original_value)
+                new_display = self._format_value(new_val, key=key)
+                input_rejected = (
+                    new_val == original_value
+                    and raw_text != self._format_value(original_value, key=key)
+                )
+                entry.destroy()
+                if input_rejected:
+                    container.configure(highlightbackground=theme.error)
+                    container.after(
+                        800,
+                        lambda c=container: (
+                            c.configure(highlightbackground=theme.border)
+                            if c.winfo_exists()
+                            else None
+                        ),
+                    )
+                else:
+                    container.configure(highlightbackground=theme.border)
+                new_lbl = tk.Label(
+                    container,
+                    text=new_display,
+                    bg=theme.edit_bg,
+                    fg=fg_color,
+                    font=(UI_FONT, 13),
+                    anchor="w",
+                    cursor="xterm",
+                )
+                new_lbl.pack(fill="x")
+                new_lbl.bind(
+                    "<Button-1>",
+                    lambda e, r=container, l=new_lbl, k=key, v=new_val, f=fg_color: self._activate_edit(
+                        r, l, k, v, f
                     ),
                 )
-            else:
-                container.configure(highlightbackground=theme.border)
-            new_lbl = tk.Label(
-                container,
-                text=new_display,
-                bg=theme.edit_bg,
-                fg=fg_color,
-                font=(UI_FONT, 13),
-                anchor="w",
-                cursor="xterm",
-            )
-            new_lbl.pack(fill="x")
-            new_lbl.bind(
-                "<Button-1>",
-                lambda e, r=container, l=new_lbl, k=key, v=new_val, f=fg_color: self._activate_edit(
-                    r, l, k, v, f
-                ),
-            )
-            container.bind(
-                "<Button-1>",
-                lambda e, r=container, l=new_lbl, k=key, v=new_val, f=fg_color: self._activate_edit(
-                    r, l, k, v, f
-                ),
-            )
-            self._edit_vars[key] = (None, new_val, "label")
-            self._update_indicator(key, new_val)
-            self._commit_in_progress = False
+                container.bind(
+                    "<Button-1>",
+                    lambda e, r=container, l=new_lbl, k=key, v=new_val, f=fg_color: self._activate_edit(
+                        r, l, k, v, f
+                    ),
+                )
+                self._edit_vars[key] = (None, new_val, "label")
+                self._update_indicator(key, new_val)
+            finally:
+                self._commit_in_progress = False
 
         def cancel_edit(event: Optional[tk.Event] = None) -> None:
-            if getattr(self, "_commit_in_progress", False):
+            if self._commit_in_progress:
                 return
             self._commit_in_progress = True
             try:
@@ -1578,6 +1595,8 @@ class ProfileDetailPanel(tk.Frame):
             )
             if idx >= 0 and idx + 1 < len(self._param_order):
                 next_key, next_container, next_fg = self._param_order[idx + 1]
+                if not next_container.winfo_exists():
+                    return "break"
                 next_val = self.current_profile.data.get(next_key)
                 if next_val is not None:
                     children = next_container.winfo_children()
@@ -1616,7 +1635,7 @@ class ProfileDetailPanel(tk.Frame):
                 self._pre_edit_modified = self.current_profile.modified
             was_in_data = key in self.current_profile.data
             self._undo_stack.append((key, original, was_in_data))
-            if len(self._undo_stack) > 200:
+            if len(self._undo_stack) > _MAX_UNDO:
                 self._undo_stack.pop(0)
             self.current_profile.data[key] = new_val
             if self.current_profile.resolved_data is not None:
@@ -1646,8 +1665,10 @@ class ProfileDetailPanel(tk.Frame):
             Parsed value, or original if parsing fails.
         """
         text = text.strip()
-        if len(text) > 10_000:
-            logger.warning("Input too long (%d chars), max 10000", len(text))
+        if len(text) > _MAX_INPUT_CHARS:
+            logger.warning(
+                "Input too long (%d chars), max %d", len(text), _MAX_INPUT_CHARS
+            )
             return original
         # IMPORTANT: bool check must come BEFORE int -- bool is a subclass of int in Python.
         if isinstance(original, bool):
@@ -1667,7 +1688,7 @@ class ProfileDetailPanel(tk.Frame):
                         original,
                     )
                     return original
-            if abs(val) > 10**9:
+            if abs(val) > _MAX_INT_ABS:
                 return original
             return val
         if isinstance(original, float):
@@ -1675,7 +1696,7 @@ class ProfileDetailPanel(tk.Frame):
                 val = float(text)
                 if not math.isfinite(val):
                     return original
-                if abs(val) > 1e15:
+                if abs(val) > _MAX_FLOAT_ABS:
                     return original
                 return val
             except ValueError:
@@ -1797,20 +1818,3 @@ class ProfileDetailPanel(tk.Frame):
             all_profiles,
             refresh_callback=lambda p: self.show_profile(p),
         )
-
-    def _detect_material_from_siblings(self) -> str:
-        try:
-            ProfileListPanel = _get_profile_list_panel_class()
-            parent = _find_ancestor(self, ProfileListPanel)
-            if parent:
-                # Look at the app's filament tab for loaded filament profiles
-                app = parent.app
-                if hasattr(app, "filament_panel") and app.filament_panel.profiles:
-                    # Use the first filament profile's material
-                    for fp in app.filament_panel.profiles:
-                        mat = detect_material(fp.data)
-                        if mat != "General":
-                            return mat
-        except (KeyError, AttributeError) as e:
-            logger.debug("Failed to detect material from siblings: %s", e)
-        return "General"

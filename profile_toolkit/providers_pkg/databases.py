@@ -142,8 +142,10 @@ class OrcaSlicerLibraryProvider(OnlineProvider):
             # Extract manufacturer from path: resources/profiles/MFR/filament/...
             parts = path[len(prefix) :].split("/")
             manufacturer = parts[0] if parts else ""
-            url = f"https://raw.githubusercontent.com/{repo}/main/{path}"
-            entry = _make_entry(fname, url, "OrcaSlicer", self.id, "OrcaSlicer preset")
+            fetch_url = f"https://raw.githubusercontent.com/{repo}/main/{path}"
+            entry = _make_entry(
+                fname, fetch_url, "OrcaSlicer", self.id, "OrcaSlicer preset"
+            )
             # Use manufacturer dir as brand if guess_brand didn't find one
             if not entry.brand and manufacturer:
                 entry.brand = manufacturer

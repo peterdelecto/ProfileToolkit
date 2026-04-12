@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import logging
-import os
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
-from typing import Any, Callable, Optional
+from tkinter import ttk, messagebox
+from typing import Callable
 
 from .constants import UI_FONT
 from .theme import Theme
 from .models import ProfileEngine
-from .utils import lighten_color, user_error
-from .widgets import make_btn, ScrollableFrame
+from .utils import user_error
+from .widgets import make_btn
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +61,7 @@ class PrusaBundleWizard(tk.Toplevel):
         # Parse in background thread, poll for completion from main thread
         import threading
 
-        self._parse_result: list | None = None
+        self._parse_result: tuple[dict, list[str]] | dict | None = None
         self._parse_error: str | None = None
         self._parse_done = threading.Event()
         self._poll_count: int = 0
@@ -134,26 +133,12 @@ class PrusaBundleWizard(tk.Toplevel):
 
     def _build_nav_buttons(
         self,
-        back: bool = False,
         next_label: str = "Next",
         next_cmd: Callable | None = None,
     ) -> None:
         for w in self._btn_frame.winfo_children():
             w.destroy()
         theme = self.theme
-
-        if back:
-            back_btn = make_btn(
-                self._btn_frame,
-                "Back",
-                self._go_back,
-                bg=theme.bg4,
-                fg=theme.btn_fg,
-                font=(UI_FONT, 12),
-                padx=14,
-                pady=6,
-            )
-            back_btn.pack(side="left")
 
         cancel_btn = make_btn(
             self._btn_frame,
@@ -303,9 +288,7 @@ class PrusaBundleWizard(tk.Toplevel):
         self._update_count()
         self._tree.bind("<Button-1>", self._on_tree_click)
 
-        self._build_nav_buttons(
-            back=False, next_label="Import", next_cmd=self._on_import
-        )
+        self._build_nav_buttons(next_label="Import", next_cmd=self._on_import)
 
     def _populate_tree(self, groups: dict[str, list[str]]) -> None:
         self._tree.delete(*self._tree.get_children())

@@ -76,7 +76,7 @@ def save_online_prefs(prefs: dict) -> None:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(prefs, f, indent=2)
             os.replace(tmp, path)
-        except BaseException:
+        except Exception:
             os.unlink(tmp)
             raise
     except OSError as exc:
@@ -106,8 +106,8 @@ def save_profile_state(profile: Profile) -> None:
     for entry in profile.changelog:
         if len(entry) < 3:
             continue
-        ts, action, details = entry[0], entry[1], entry[2]
-        snapshot = entry[3] if len(entry) > 3 else None
+        ts, action, details, *rest = entry
+        snapshot = rest[0] if rest else None
         # Validate snapshot is JSON-serializable before including
         if snapshot is not None:
             try:
@@ -216,7 +216,7 @@ def reapply_unlock_state(profile: Profile, state: dict) -> None:
                     file_mtime - saved_at,
                 )
         except OSError:
-            pass
+            logger.debug("Could not stat source file for '%s'", profile.name)
     saved_log = state.get("changelog", [])
     if not isinstance(saved_log, list):
         return
@@ -265,7 +265,8 @@ def cleanup_stale_state(max_age_days: int = 90) -> int:
             if src and not os.path.exists(src) and os.path.getmtime(fp) < cutoff:
                 os.unlink(fp)
                 removed += 1
-        except (json.JSONDecodeError, OSError, KeyError):
+        except (json.JSONDecodeError, OSError, KeyError) as exc:
+            logger.debug("Skipping stale state file '%s': %s", fname, exc)
             continue
     if removed:
         logger.info("Cleaned up %d stale state files", removed)

@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -60,6 +61,8 @@ class ConvertDetailPanel(tk.Frame):
         self._filled: dict[str, Any] = {}  # preview edits, committed on Convert
         self._collapsed: set[str] = set()
         self._row_idx = 0  # alternating row counter
+        self._edit_cancelled = False
+        self._missing_set: set[str] = set()
 
         self._build_ui()
 
@@ -195,14 +198,24 @@ class ConvertDetailPanel(tk.Frame):
         from .constants import _PLATFORM
 
         _mod = "Command" if _PLATFORM == "Darwin" else "Control"
-        self.bind_all(
-            f"<{_mod}-Return>",
+        self._kb_seq = f"<{_mod}-Return>"
+        self._kb_handler = self.winfo_toplevel().bind(
+            self._kb_seq,
             lambda e: (
                 self._do_convert()
                 if getattr(self.app, "_current_tab", "") == "convert"
                 else None
             ),
         )
+        self.bind("<Destroy>", self._on_destroy_convert, add="+")
+
+    def _on_destroy_convert(self, event=None) -> None:
+        if event and event.widget is not self:
+            return
+        try:
+            self.winfo_toplevel().unbind(self._kb_seq)
+        except (tk.TclError, AttributeError):
+            pass
 
     # --- Public API ---
 
@@ -817,7 +830,22 @@ class ConvertDetailPanel(tk.Frame):
             )
             return
 
-        new_profile, _, _, _ = self._profile.convert_to(self._target_slicer)
+        if not self._converted:
+            return
+        try:
+            new_profile = copy.deepcopy(self._converted)
+        except Exception:
+            logger = logging.getLogger(__name__)
+            logger.warning("deepcopy failed, falling back to convert_to")
+            try:
+                new_profile, _, _, _ = self._profile.convert_to(self._target_slicer)
+            except Exception as exc:
+                messagebox.showerror(
+                    "Conversion Error",
+                    f"Could not convert profile:\n{exc}",
+                    parent=self,
+                )
+                return
 
         # Apply filled values
         for k, v in self._filled.items():

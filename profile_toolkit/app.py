@@ -63,14 +63,7 @@ class App(tk.Tk):
 
     @staticmethod
     def _extract_user_id(source_path: str) -> str:
-        """Extract user_id from directory structure: .../user/<user_id>/...
-
-        Args:
-            source_path: File or directory path containing "user/<user_id>/"
-
-        Returns:
-            The user_id if found, otherwise empty string
-        """
+        """Extract user_id from directory structure: .../user/<user_id>/..."""
         parts = os.path.normpath(source_path).split(os.sep)
         for i, part in enumerate(parts):
             if part == "user" and i + 1 < len(parts):
@@ -96,8 +89,9 @@ class App(tk.Tk):
 
         self.detected_slicers = SlicerDetector.find_all()
         self.preset_index = PresetIndex()
-        self._filament_selection: list = []  # Cached filament panel selection
+        self._filament_selection: list = []
         self._preset_loading = False
+        self._bg_timer: Optional[threading.Timer] = None
 
         # Build preset index from all detected slicers
         for name, path in self.detected_slicers.items():
@@ -118,19 +112,21 @@ class App(tk.Tk):
         # Set minimum size after UI is built and mapped
         self.update_idletasks()
         self.minsize(1020, 620)
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _on_close(self) -> None:
+        """Handle window close — cancel background timers and destroy."""
+        if self._bg_timer is not None:
+            self._bg_timer.cancel()
+            self._bg_timer = None
+        self.destroy()
 
     def _icon(self, name: str, small: bool = False) -> Optional[tk.PhotoImage]:
         source = self.icons_sm if small else self.icons
         return getattr(source, name, None) if source else None
 
     def _set_window_icon(self) -> None:
-        """Set the application window icon for taskbar, title bar, and dock.
-
-        Platform-specific handling:
-          macOS:   Uses .icns via tk.call('wm', 'iconphoto') + PhotoImage fallback
-          Windows: Uses .ico via iconbitmap() for sharp taskbar/title bar icons
-          Linux:   Uses iconphoto() with multiple PNG sizes (freedesktop.org)
-        """
+        """Set the application window icon for taskbar, title bar, and dock."""
         import sys
 
         try:
@@ -166,11 +162,7 @@ class App(tk.Tk):
             logger.debug("Could not set window icon", exc_info=True)
 
     def _configure_styles(self) -> None:
-        """Configure ttk style theme for the application.
-
-        Sets colors, fonts, and appearance for all themed widgets
-        (Treeview, Combobox, Notebook tabs).
-        """
+        """Configure ttk style theme for the application."""
         theme = self.theme
         style = ttk.Style(self)
         available = style.theme_names()
@@ -249,12 +241,7 @@ class App(tk.Tk):
         )
 
     def _build_menu(self) -> None:
-        """Build the application menu bar (File, Edit, Help).
-
-        Configures File menu with import/export operations, Edit menu
-        with selection, and Help menu with about dialog. Binds keyboard
-        shortcuts across all platforms.
-        """
+        """Build the application menu bar (File, Edit, Help)."""
         menubar = tk.Menu(self, bg=self.theme.bg3, fg=self.theme.fg)
         file_menu = tk.Menu(menubar, tearoff=0, bg=self.theme.bg3, fg=self.theme.fg)
         mod_key = "Cmd" if _PLATFORM == "Darwin" else "Ctrl"
@@ -310,6 +297,14 @@ class App(tk.Tk):
 
         self.config(menu=menubar)
 
+        # macOS: replace "Python → About Python" with our About dialog
+        if _PLATFORM == "Darwin":
+            try:
+                self.createcommand("tk::mac::ShowPreferences", lambda: None)
+                self.createcommand("tkAboutDialog", self._on_about)
+            except (tk.TclError, AttributeError):
+                pass
+
         # Bind keyboard shortcuts
         mod_key_internal = "Command" if _PLATFORM == "Darwin" else "Control"
         self.bind(f"<{mod_key_internal}-o>", lambda e: self._on_import_json())
@@ -319,11 +314,7 @@ class App(tk.Tk):
         self.bind(f"<{mod_key_internal}-a>", lambda e: self._on_select_all())
 
     def _build_ui(self) -> None:
-        """Build the main UI layout.
-
-        Constructs status bar, toolbar with tab buttons, and content area
-        with two stacked ProfileListPanel instances (process/filament).
-        """
+        """Build the main UI layout."""
         theme = self.theme
 
         # Status bar (pack first so it stays at bottom)
@@ -649,7 +640,7 @@ class App(tk.Tk):
 
         # Prevent multiple concurrent loads
         with self._preset_lock:
-            if getattr(self, "_preset_loading", False):
+            if self._preset_loading:
                 return
             self._preset_loading = True
 
@@ -712,19 +703,17 @@ class App(tk.Tk):
 
         threading.Thread(target=_bg_scan, daemon=True).start()
 
+        def _on_overlay_dismiss(p: ProfileListPanel) -> None:
+            p._hide_overlay()
+            self._update_status(
+                "Loading timed out. Try again, or import manually via File > Import."
+            )
+
         def _bg_timeout():
             with self._preset_lock:
                 if self._preset_loading:
                     self._preset_loading = False
-                    self._safe_after(
-                        0,
-                        lambda: (
-                            panel._hide_overlay(),
-                            self._update_status(
-                                "Loading timed out. Try again, or import manually via File > Import."
-                            ),
-                        ),
-                    )
+                    self._safe_after(0, lambda: _on_overlay_dismiss(panel))
 
         self._bg_timer = threading.Timer(PRESET_SCAN_TIMEOUT_S, _bg_timeout)
         self._bg_timer.start()
@@ -874,11 +863,7 @@ class App(tk.Tk):
         self._update_status(status)
 
     def _load_files(self, path_hint_tuples: list[tuple]) -> None:
-        """Load files. Each entry is (path, type_hint, origin).
-
-        Args:
-            path_hint_tuples: List of (path, type_hint, origin) tuples
-        """
+        """Load files from a list of (path, type_hint, origin) tuples."""
         self._filament_selection = []
         loaded_f, resolved_count = 0, 0
         errors = []
@@ -986,7 +971,7 @@ class App(tk.Tk):
             try:
                 self._save_back_to_slicer(profile)
                 saved_back += 1
-            except (OSError, json.JSONDecodeError) as exc:
+            except OSError as exc:
                 logger.warning(f"Auto-save failed for {profile.name}: {exc}")
 
         panel._refresh_list()
@@ -1083,7 +1068,7 @@ class App(tk.Tk):
                 # Create a new .info file — derive fields from context
                 user_id = self._extract_user_id(fp)
 
-                setting_id = SETTING_ID_PREFIX + secrets.token_hex(7)[:14]
+                setting_id = SETTING_ID_PREFIX + secrets.token_hex(7)
                 base_id = "GFSU00"
 
                 with open(info_path, "w", encoding="utf-8") as f:
@@ -1198,7 +1183,10 @@ class App(tk.Tk):
 
         # Find the new profile's iid by matching the object
         for iid in panel.tree.get_children():
-            idx = int(iid)
+            try:
+                idx = int(iid)
+            except ValueError:
+                continue
             if idx < len(panel.profiles) and panel.profiles[idx] is new_profile:
                 panel.tree.selection_set(iid)
                 panel.tree.see(iid)
@@ -1322,7 +1310,7 @@ class App(tk.Tk):
                     if fmt == "json" and hasattr(self, "_write_info_file"):
                         self._write_info_file(fp, os.path.dirname(fp), profile)
                     self._update_status(f"Exported: {os.path.basename(fp)}")
-                except (OSError, json.JSONDecodeError) as e:
+                except OSError as e:
                     messagebox.showerror(
                         "Export Error",
                         user_error(
@@ -1339,12 +1327,7 @@ class App(tk.Tk):
                 self._do_export(selected, out, flatten=True, fmt=fmt)
 
     def _on_export_to_slicer(self, name: str, path: str) -> None:
-        """Export selected profiles to a slicer's preset directory.
-
-        Args:
-            name: Slicer name (e.g., 'BambuStudio')
-            path: Path to slicer installation
-        """
+        """Export selected profiles to a slicer's preset directory."""
         panel = self._active_panel()
         if hasattr(panel, "detail"):
             panel.detail._commit_edits()
@@ -1450,16 +1433,7 @@ class App(tk.Tk):
         write_info: bool = False,
         fmt: str = "json",
     ) -> None:
-        """Export multiple profiles to a directory.
-
-        Args:
-            profiles: List of Profile objects to export
-            out_dir: Output directory path
-            organize: If True, organize into profile_type subdirectories
-            flatten: If True, include all inherited settings
-            quiet: If True, suppress success messagebox
-            write_info: If True, write .info metadata files (BambuStudio/OrcaSlicer)
-        """
+        """Export multiple profiles to a directory."""
         exported, errors = self._export_profiles_batch(
             profiles, out_dir, organize, flatten, write_info, fmt
         )
@@ -1493,7 +1467,7 @@ class App(tk.Tk):
                     self._write_info_file(fp, out_dir, profile)
 
                 exported += 1
-            except (OSError, json.JSONDecodeError) as e:
+            except OSError as e:
                 msg = f"{profile.name}: {e}"
                 errors.append(msg)
                 logger.error(msg, exc_info=True)
@@ -1560,23 +1534,7 @@ class App(tk.Tk):
         export_base: str,
         profile: Profile,
     ) -> None:
-        """Write a BambuStudio/OrcaSlicer .info metadata file.
-
-        BambuStudio uses .info files to track profile identity, ownership,
-        and sync state. Without one the profile may be ignored.
-
-        Format (INI-style, no section headers):
-            sync_info = <empty or 'update'>
-            user_id = <numeric user id from export directory>
-            setting_id = <unique id>
-            base_id = <parent system profile id, or GFSU00 as fallback>
-            updated_time = <unix timestamp>
-
-        Args:
-            json_path: Path to the exported .json file
-            export_base: Base export directory path
-            profile: Profile instance
-        """
+        """Write a BambuStudio/OrcaSlicer .info metadata file alongside the JSON."""
         import time as _time
 
         info_path = os.path.splitext(json_path)[0] + ".info"
@@ -1758,13 +1716,9 @@ class App(tk.Tk):
         self._active_panel().select_all()
 
     def _on_about(self) -> None:
-        messagebox.showinfo(
-            "About",
-            f"{APP_NAME} v{APP_VERSION}\n\n"
-            "Make any filament profile work with any printer.\n"
-            "Convert profiles between BambuStudio, OrcaSlicer,\n"
-            "and PrusaSlicer.",
-        )
+        from profile_toolkit.about_dialog import show_about
+
+        show_about(self, self.theme)
 
     def _update_status(self, msg: str = "") -> None:
         """Update status bar text."""
@@ -1776,11 +1730,8 @@ class App(tk.Tk):
     def _update_counts(self) -> None:
         """Update profile count display."""
         try:
-            profiles = (
-                getattr(self, "filament_panel", None)
-                and self.filament_panel.profiles
-                or []
-            )
+            panel = getattr(self, "filament_panel", None)
+            profiles = panel.profiles if panel else []
             count = len(profiles)
             self._count_label.configure(text=f"{count} profiles")
         except (tk.TclError, AttributeError):
@@ -1832,11 +1783,18 @@ class App(tk.Tk):
 
 
 def _set_macos_app_name() -> None:
-    """Set the process name shown in the macOS menu bar."""
+    """Set the process name shown in the macOS menu bar.
+
+    Tries pyobjc (CFBundleName) first for a clean rename.
+    Falls back to a hidden Tk root + withdraw trick that at least
+    replaces "Python" in the menu bar title on most macOS versions.
+    """
     import platform
 
     if platform.system() != "Darwin":
         return
+
+    # Approach 1: pyobjc — sets the real bundle name
     try:
         from Foundation import NSBundle
 
@@ -1844,7 +1802,17 @@ def _set_macos_app_name() -> None:
         info = bundle.localizedInfoDictionary() or bundle.infoDictionary()
         if info:
             info["CFBundleName"] = APP_NAME
+            return  # success
     except ImportError:
+        pass
+
+    # Approach 2: Tk-native — rename the auto-generated apple menu
+    try:
+        _tmp = tk.Tk()
+        _tmp.withdraw()
+        _tmp.title(APP_NAME)
+        _tmp.destroy()
+    except tk.TclError:
         pass
 
 

@@ -34,17 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 class Tooltip:
-    """Lightweight hover tooltip for any widget.
-
-    Displays a styled tooltip window when the user hovers over a widget.
-    Automatically dismisses on mouse leave, button click, or when the app
-    loses focus (macOS behavior to prevent stealing focus).
-
-    Args:
-        widget: The tkinter widget to attach the tooltip to.
-        text: The tooltip text to display.
-        delay: Delay in milliseconds before showing the tooltip (default: 500ms).
-    """
+    """Lightweight hover tooltip that dismisses on leave, click, or focus loss."""
 
     def __init__(
         self,
@@ -111,7 +101,6 @@ class Tooltip:
             padx=8,
             pady=4,
             relief="solid",
-            bd=1,
             borderwidth=1,
             highlightbackground=popup_border,
         )
@@ -122,17 +111,7 @@ class Tooltip:
 
 
 class InfoPopup:
-    """Click-triggered info popup for parameter recommendations.
-
-    Shows material-specific ranges and general info in a styled popup.
-    Only one popup can be active at a time; opening a new popup automatically
-    dismisses any existing one.
-
-    Args:
-        widget: The tkinter widget to attach the popup trigger to.
-        key: The parameter key for looking up recommendations.
-        material: The material name for material-specific range display (default: "General").
-    """
+    """Click-triggered info popup showing material-specific parameter recommendations."""
 
     _active_popup: Optional[InfoPopup] = None  # Class-level: only one popup at a time
 
@@ -156,7 +135,16 @@ class InfoPopup:
             self._dismiss()
             return
         if InfoPopup._active_popup and InfoPopup._active_popup is not self:
-            InfoPopup._active_popup._dismiss()
+            try:
+                if (
+                    InfoPopup._active_popup._popup
+                    and InfoPopup._active_popup._popup.winfo_exists()
+                ):
+                    InfoPopup._active_popup._dismiss()
+                else:
+                    InfoPopup._active_popup = None
+            except tk.TclError:
+                InfoPopup._active_popup = None
         self._show()
 
     def _dismiss(self, event: Optional[tk.Event] = None) -> None:
@@ -473,23 +461,7 @@ class InfoPopup:
 
 
 class ScrollableFrame(tk.Frame):
-    """Reusable scrollable frame with automatic scrolling.
-
-    Wraps the Canvas+Scrollbar+inner-Frame boilerplate into a single reusable widget.
-    The inner scrollable area is available via the `body` attribute.
-
-    Usage:
-        sf = ScrollableFrame(parent, bg=theme.bg3)
-        sf.pack(fill="both", expand=True)
-        # Add widgets to sf.body (the inner scrollable frame)
-        tk.Label(sf.body, text="Hello").pack()
-
-    Args:
-        parent: Parent tkinter widget.
-        bg: Background color (default: "#2D2D31").
-        highlight_border: Optional border color; if provided, adds a 1px border.
-        **kwargs: Additional keyword arguments passed to tk.Frame.
-    """
+    """Reusable Canvas+Scrollbar+inner-Frame wrapper. Add widgets to ``self.body``."""
 
     def __init__(
         self,
@@ -556,31 +528,8 @@ def make_btn(
     pady: int = 4,
     image: Optional[Any] = None,
     compound: str = "left",
-    **kw: Any,
 ) -> tk.Frame:
-    """Create a Label-based button with hover color lightening.
-
-    macOS ignores bg/fg on tk.Button; Labels respect them and we bind click
-    events manually. This provides a cross-platform button with hover effects.
-
-    Args:
-        parent: Parent widget to contain the button.
-        text: Button label text.
-        command: Callable to invoke when button is clicked.
-        bg: Background color.
-        fg: Foreground (text) color.
-        font: Font tuple (family, size) or (family, size, style).
-        padx: Horizontal padding in pixels.
-        pady: Vertical padding in pixels.
-        image: Optional tk.PhotoImage to display alongside text.
-        compound: How to compound image and text ("left", "right", "top", "bottom").
-        **kw: Additional keyword arguments (currently unused).
-
-    Returns:
-        A tk.Frame containing the label-based button. The frame can be used
-        like a normal widget and has a `configure` method that proxies to
-        the inner label for convenience.
-    """
+    """Create a Label-based button with hover lightening (macOS-safe, cross-platform)."""
     state = {"bg": bg}
 
     wrapper = tk.Frame(
@@ -610,7 +559,7 @@ def make_btn(
         command()
 
     lbl.bind("<Button-1>", _on_click)
-    wrapper.bind("<Button-1>", lambda e: None)  # absorb click, label handler fires
+    wrapper.bind("<Button-1>", lambda e: "break")  # absorb click, label handler fires
     wrapper.bind("<Return>", lambda e: command() if command else None)
     wrapper.bind("<space>", lambda e: command() if command else None)
 
@@ -666,20 +615,7 @@ def make_btn(
 
 
 class ExportDialog(tk.Toplevel):
-    """Dialog shown before export. Offers file export and slicer quick-install.
-
-    This dialog appears when the user initiates a profile export. It allows them to:
-    - Export directly to a detected slicer's preset folder
-    - Export to a file
-
-    All exports are automatically flattened (inherited parameters included).
-
-    Args:
-        parent: Parent window.
-        theme: Theme object containing color scheme.
-        count: Number of profiles being exported (for plural display).
-        detected_slicers: Dict mapping slicer name -> path to installation.
-    """
+    """Export dialog offering file export and slicer quick-install."""
 
     def __init__(
         self,
@@ -774,7 +710,9 @@ class ExportDialog(tk.Toplevel):
 
             slicer_row = tk.Frame(self, bg=theme.bg)
             slicer_row.pack(fill="x", padx=20, pady=(0, 4))
-            from .models import SlicerDetector
+            from .models import (
+                SlicerDetector,
+            )  # Late import to avoid circular dependency
 
             for name, path in self._detected_slicers.items():
                 try:
@@ -845,17 +783,7 @@ class ExportDialog(tk.Toplevel):
 
 
 class UnlockDialog(tk.Toplevel):
-    """Dialog for unlocking profiles to work across different printer models.
-
-    Allows users to either:
-    - Make profiles universal (work with any printer)
-    - Assign profiles to specific printer models with nozzle sizes
-
-    Args:
-        parent: Parent window.
-        theme: Theme object containing color scheme.
-        count: Number of profiles being unlocked.
-    """
+    """Dialog for unlocking profiles to work across different printer models."""
 
     def __init__(self, parent: tk.Widget, theme: Theme, count: int = 1) -> None:
         """Initialize unlock dialog.
@@ -976,7 +904,9 @@ class UnlockDialog(tk.Toplevel):
             width=20,
         )
         printer_search.pack(side="left", padx=(4, 0), fill="x", expand=True)
-        self._printer_search_var.trace_add("write", lambda *_: self._filter_printers())
+        self._printer_search_trace_id = self._printer_search_var.trace_add(
+            "write", lambda *_: self._filter_printers()
+        )
 
         list_frame = tk.Frame(
             self.printer_frame,

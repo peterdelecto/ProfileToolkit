@@ -190,8 +190,12 @@ def bind_scroll(widget: tk.Widget, canvas: tk.Canvas) -> None:
     """Hook up mousewheel events on a widget to scroll a canvas (cross-platform)."""
     is_mac = _PLATFORM == "Darwin"
 
+    _SCROLL_MULTIPLIER = 3
+
     def _clamp_scroll(units: int) -> None:
         """Scroll canvas by units, but don't overshoot top or bottom."""
+        if not canvas.winfo_exists():
+            return
         top, bottom = canvas.yview()
         # Content fits entirely — no scrolling needed
         if top <= 0.0 and bottom >= 1.0:
@@ -204,7 +208,7 @@ def bind_scroll(widget: tk.Widget, canvas: tk.Canvas) -> None:
 
     def on_wheel(event: tk.Event) -> None:
         if is_mac:
-            _clamp_scroll(int(-1 * event.delta * 3))
+            _clamp_scroll(int(-1 * event.delta * _SCROLL_MULTIPLIER))
         else:
             units = round(-1 * event.delta / _WIN_SCROLL_DELTA_DIVISOR)
             if units == 0:
@@ -212,8 +216,8 @@ def bind_scroll(widget: tk.Widget, canvas: tk.Canvas) -> None:
             _clamp_scroll(units)
 
     widget.bind("<MouseWheel>", on_wheel)
-    widget.bind("<Button-4>", lambda event: _clamp_scroll(-3))
-    widget.bind("<Button-5>", lambda event: _clamp_scroll(3))
+    widget.bind("<Button-4>", lambda event: _clamp_scroll(-_SCROLL_MULTIPLIER))
+    widget.bind("<Button-5>", lambda event: _clamp_scroll(_SCROLL_MULTIPLIER))
 
 
 def lighten_color(hex_color: str, amount: int = COLOR_LIGHTEN_AMOUNT) -> str:
@@ -228,27 +232,13 @@ def lighten_color(hex_color: str, amount: int = COLOR_LIGHTEN_AMOUNT) -> str:
 
 
 def guess_material(name: str) -> str:
-    """Detect material type from profile name."""
-    n = name.upper()
-    for mat in (
-        "PLA-CF",
-        "PETG",
-        "PLA",
-        "ABS",
-        "ASA",
-        "TPU",
-        "PC",
-        "PVA",
-        "HIPS",
-        "PPS",
-        "PVDF",
-    ):
-        if mat in n:
-            return mat.replace("-CF", " CF")  # normalize compound names
-    # PA needs word boundary check to avoid matching IMPACT, SPACING, etc.
-    if re.search(r"\bPA\b", n):
-        return "PA"
-    return ""
+    """Detect material type from profile name.
+
+    Delegates to detect_material() for consistent matching, returning ""
+    instead of "General" when nothing matches.
+    """
+    result = detect_material({"name": name})
+    return "" if result == "General" else result
 
 
 def guess_brand(name: str) -> str:
@@ -264,7 +254,6 @@ def guess_brand(name: str) -> str:
         "3DJake",
         "Coex",
         "addnorth",
-        "OVERTURE",
     ):
         if brand.lower() in name.lower():
             return brand
