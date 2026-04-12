@@ -438,23 +438,19 @@ class ProfileListPanel(tk.Frame):
             "OrcaSlicer": (theme.badge_orca, "O"),
         }
         size = 20
-        transparent = ""  # transparent pixel for PhotoImage row data
+        bg = self.theme.bg  # background color for non-circle pixels
         for origin, (color, letter) in specs.items():
             img = tk.PhotoImage(width=size, height=size)
             center_x, center_y, radius = size // 2, size // 2, size // 2 - 1
             radius_sq = radius * radius
-            # Build circle rows using row-string approach (much faster than per-pixel put)
-            circle_rows = []
+            # Build rows using row-string approach (much faster than per-pixel put)
             for y in range(size):
                 dy = y - center_y
                 row_pixels = []
                 for x in range(size):
                     dx = x - center_x
-                    row_pixels.append(
-                        color if dx * dx + dy * dy <= radius_sq else transparent
-                    )
-                circle_rows.append("{" + " ".join(row_pixels) + "}")
-            img.put(" ".join(circle_rows))
+                    row_pixels.append(color if dx * dx + dy * dy <= radius_sq else bg)
+                img.put("{" + " ".join(row_pixels) + "}", to=(0, y))
             # Draw letter (white) -- simple 5x7 bitmap font for P, B, O
             glyphs = {
                 "P": [
