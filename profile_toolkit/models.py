@@ -25,16 +25,13 @@ class BundleDetectedError(ValueError):
 _RE_AT_SUFFIX = re.compile(r"\s*@.*$")
 
 from .constants import (
-    _ALL_FILAMENT_KEYS,
     _IDENTITY_KEYS,
     _FILAMENT_SIGNAL_KEYS,
     _PROCESS_SIGNAL_KEYS,
     _PROFILE_SIGNAL_KEYS,
     _KNOWN_FILAMENT_BRANDS,
     _FILAMENT_TYPES,
-    _NOZZLE_SIZES,
     _ALL_BBL_PRINTERS,
-    _KNOWN_PRINTERS,
     _PLATFORM,
     FILAMENT_LAYOUT,
     MAX_INHERITANCE_DEPTH,

@@ -11,7 +11,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from collections import Counter
 from copy import deepcopy
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, messagebox
 from typing import Any, Optional
 
 from .constants import (

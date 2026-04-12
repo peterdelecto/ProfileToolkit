@@ -886,7 +886,7 @@ class OnlineImportWizard(tk.Toplevel):
         def _check() -> None:
             try:
                 has_updates = provider.check_for_updates()
-            except Exception:
+            except (urllib.error.URLError, OSError, RuntimeError, ValueError):
                 logger.debug("Provider update check failed", exc_info=True)
                 has_updates = False
             if has_updates and not self._cancelled:

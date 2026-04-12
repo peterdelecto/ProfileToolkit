@@ -19,7 +19,6 @@ import zipfile
 
 from .constants import (
     APP_NAME,
-    APP_VERSION,
     _PLATFORM,
     _WIN_WIDTH,
     _WIN_HEIGHT,
@@ -45,7 +44,7 @@ from .state import (
     restore_profile_state,
     cleanup_stale_state,
 )
-from .panels import ProfileDetailPanel, ProfileListPanel, ComparePanel
+from .panels import ProfileListPanel, ComparePanel
 from .dialogs import OnlineImportWizard, PrusaBundleWizard
 from .utils import user_error
 from .widgets import ExportDialog, Tooltip, UnlockDialog, make_btn
