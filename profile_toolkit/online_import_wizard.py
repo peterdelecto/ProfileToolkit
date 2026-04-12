@@ -786,6 +786,13 @@ class OnlineImportWizard(tk.Toplevel):
             self._show_pane_status("No profiles found from this source.")
             return
 
+        # Reset filters to "All" before repopulating (avoids stale values
+        # from a previous source lingering in the dropdown display)
+        self._filter_material.set("All")
+        self._filter_brand.set("All")
+        self._filter_machine.set("All")
+        self._filter_nozzle.set("All")
+
         # Populate filter dropdowns
         materials = sorted(set(e.material for e in catalog if e.material))
         brands = sorted(set(e.brand for e in catalog if e.brand))
@@ -835,17 +842,6 @@ class OnlineImportWizard(tk.Toplevel):
             self._prev_catalog_names = None
         else:
             self._browse_status.set(f"{len(catalog)} profiles available")
-
-        # Restore saved filter values if they exist in current catalog (#6)
-        for var, key, combo in (
-            (self._filter_material, "last_material", self._mat_combo),
-            (self._filter_brand, "last_brand", self._brand_combo),
-            (self._filter_machine, "last_machine", self._machine_combo),
-            (self._filter_nozzle, "last_nozzle", self._nozzle_combo),
-        ):
-            saved = self._prefs.get(key, "All")
-            if saved != "All" and saved in list(combo["values"]):
-                var.set(saved)
 
         self._apply_filters()
 
@@ -1425,11 +1421,6 @@ class OnlineImportWizard(tk.Toplevel):
             self._show_step(1)
 
         elif step == 1:
-            # Save filter prefs
-            self._prefs["last_material"] = self._filter_material.get()
-            self._prefs["last_brand"] = self._filter_brand.get()
-            self._prefs["last_machine"] = self._filter_machine.get()
-            self._prefs["last_nozzle"] = self._filter_nozzle.get()
             # Check at least one selected
             selected = [e for e in self._catalog if e.selected]
             if not selected:
