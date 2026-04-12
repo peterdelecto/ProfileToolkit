@@ -187,8 +187,8 @@ class BambuStudioOfficialProvider(OnlineProvider):
 
         entries = []
         for node in nodes:
-            path = node["path"]
-            if not path.endswith(".json"):
+            path = node.get("path", "")
+            if not path or not path.endswith(".json"):
                 continue
             fname = path.rsplit("/", 1)[-1].replace(".json", "")
             url = (

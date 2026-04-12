@@ -1852,18 +1852,25 @@ class SlicerDetector:
         # Orca/Bambu layout: user/<uid>/<type>/*.json
         user_dir = os.path.join(slicer_path, "user")
         if os.path.isdir(user_dir):
-            for uid in os.listdir(user_dir):
+            try:
+                uid_entries = os.listdir(user_dir)
+            except OSError:
+                uid_entries = []
+            for uid in uid_entries:
                 uid_path = os.path.join(user_dir, uid)
                 if not os.path.isdir(uid_path):
                     continue
                 for profile_type in presets:
                     type_dir = os.path.join(uid_path, profile_type)
                     if os.path.isdir(type_dir):
-                        presets[profile_type].extend(
-                            os.path.join(type_dir, f)
-                            for f in os.listdir(type_dir)
-                            if f.endswith(".json")
-                        )
+                        try:
+                            presets[profile_type].extend(
+                                os.path.join(type_dir, f)
+                                for f in os.listdir(type_dir)
+                                if f.endswith(".json")
+                            )
+                        except OSError:
+                            pass
 
         # PrusaSlicer layout: <type>/*.ini  (filament/, print/, printer/)
         _PRUSA_TYPE_MAP = {
@@ -1874,11 +1881,14 @@ class SlicerDetector:
         for prusa_dir, mapped_type in _PRUSA_TYPE_MAP.items():
             type_dir = os.path.join(slicer_path, prusa_dir)
             if os.path.isdir(type_dir):
-                presets[mapped_type].extend(
-                    os.path.join(type_dir, f)
-                    for f in os.listdir(type_dir)
-                    if f.endswith(".ini")
-                )
+                try:
+                    presets[mapped_type].extend(
+                        os.path.join(type_dir, f)
+                        for f in os.listdir(type_dir)
+                        if f.endswith(".ini")
+                    )
+                except OSError:
+                    pass
 
         return presets
 
@@ -1892,10 +1902,17 @@ class SlicerDetector:
         user_dir = os.path.join(slicer_path, "user")
         if os.path.isdir(user_dir):
             candidates = []
-            for e in os.listdir(user_dir):
+            try:
+                dir_entries = os.listdir(user_dir)
+            except OSError:
+                dir_entries = []
+            for e in dir_entries:
                 entry_path = os.path.join(user_dir, e)
                 if os.path.isdir(entry_path):
                     candidates.append(entry_path)
             if candidates:
-                return max(candidates, key=os.path.getmtime)
+                try:
+                    return max(candidates, key=os.path.getmtime)
+                except OSError:
+                    return candidates[0]
         return slicer_path

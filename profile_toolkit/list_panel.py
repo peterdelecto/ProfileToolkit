@@ -592,7 +592,10 @@ class ProfileListPanel(tk.Frame):
         sel = self.tree.selection()
 
         if len(sel) == 1:
-            idx = int(sel[0])
+            try:
+                idx = int(sel[0])
+            except (ValueError, TypeError):
+                return
             if idx < len(self.profiles):
                 if self._mode == "convert":
                     self.convert_detail.show_profile(self.profiles[idx])
@@ -736,7 +739,10 @@ class ProfileListPanel(tk.Frame):
             self._tree_tip = None
         if not item:
             return
-        idx = int(item)
+        try:
+            idx = int(item)
+        except (ValueError, TypeError):
+            return
         if idx >= len(self.profiles):
             return
         profile = self.profiles[idx]
@@ -1008,7 +1014,10 @@ class ProfileListPanel(tk.Frame):
         sel = list(self.tree.selection())
         if len(sel) != 1:
             return
-        idx = int(sel[0])
+        try:
+            idx = int(sel[0])
+        except (ValueError, TypeError):
+            return
         if idx < len(self.profiles):
             self._start_inline_rename(sel[0], idx)
 
@@ -1105,7 +1114,10 @@ class ProfileListPanel(tk.Frame):
         item = self.tree.identify_row(event.y)
         if not item:
             return ""
-        idx = int(item)
+        try:
+            idx = int(item)
+        except (ValueError, TypeError):
+            return ""
         if idx < len(self.profiles):
             self._start_inline_rename(item, idx)
         return "break"  # Prevent default expand/collapse behavior
@@ -1116,7 +1128,10 @@ class ProfileListPanel(tk.Frame):
         seen_indices = set()
         result = []
         for iid in self.tree.selection():
-            idx = int(iid)
+            try:
+                idx = int(iid)
+            except (ValueError, TypeError):
+                continue
             if idx < len(self.profiles) and idx not in seen_indices:
                 seen_indices.add(idx)
                 result.append(self.profiles[idx])
@@ -1135,7 +1150,10 @@ class ProfileListPanel(tk.Frame):
     def remove_selected(self) -> None:
         indices = set()
         for iid in self.tree.selection():
-            indices.add(int(iid))
+            try:
+                indices.add(int(iid))
+            except (ValueError, TypeError):
+                continue
         for i in sorted(indices, reverse=True):
             if i < len(self.profiles):
                 self.profiles.pop(i)

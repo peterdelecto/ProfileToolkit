@@ -73,7 +73,16 @@ profile_toolkit/
   providers_pkg/               Online profile source providers
 resources/                     App icons (PNG, ICO, ICNS)
 tests/
-  test_profile.py
+  test_models.py              Profile, ProfileEngine, _decode_json_bytes
+  test_providers.py           Online providers and catalog caching
+  test_utils.py               Material detection, color helpers, parsing
+  test_state.py               Persistence save/restore/cleanup
+  test_constants.py           Layout integrity, recommendation structure, enums
+  test_theme.py               WCAG AA contrast validation for all color tokens
+  test_preset_index.py        Inheritance resolution, collision tracking
+  test_slicer_detector.py     Path discovery, preset scanning, export dirs
+  test_engine_edge_cases.py   Corrupt files, encoding fallbacks, 3MF detection
+  test_detail_panel.py        Detail panel rendering
 ```
 
 ## Supported Slicers

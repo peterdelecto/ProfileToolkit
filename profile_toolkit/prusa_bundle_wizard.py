@@ -115,6 +115,8 @@ class PrusaBundleWizard(tk.Toplevel):
                 )
             )
             return
+        if not isinstance(self._parse_result, tuple) or len(self._parse_result) != 2:
+            return
         sections, all_names = self._parse_result
         self._sections = sections
         self.parsed_sections = sections  # cache for caller

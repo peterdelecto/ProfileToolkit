@@ -385,7 +385,7 @@ FILAMENT_LAYOUT = {
 
 # Slicer identity colors and labels (used for origin badges in UI)
 SLICER_COLORS = {
-    "PrusaSlicer": "#FF7B15",  # Orange
+    "PrusaSlicer": "#E56A00",  # Orange (darkened for WCAG AA-Large with white text)
     "BambuStudio": "#2ECC71",  # Green (4.6:1 AA with dark text)
     "OrcaSlicer": "#2196F3",  # Blue
 }

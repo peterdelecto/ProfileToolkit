@@ -1629,6 +1629,8 @@ class ComparePanel(tk.Frame):
         search_text = self._get_search_text()
 
         for json_key, row_widget in self._row_cache.items():
+            if not row_widget.winfo_exists():
+                continue
             meta = self._row_metadata.get(json_key)
             if not meta:
                 continue
@@ -2394,7 +2396,7 @@ class ComparePanel(tk.Frame):
         while self._undo_stack:
             profile, json_key, old_val, was_modified = self._undo_stack.pop()
             profile.data[json_key] = deepcopy(old_val)
-            if profile.resolved_data:
+            if profile.resolved_data is not None:
                 profile.resolved_data[json_key] = deepcopy(old_val)
             profile.modified = was_modified
             start = self._changelog_start.get(id(profile), 0)

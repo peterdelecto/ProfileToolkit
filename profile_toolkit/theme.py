@@ -55,12 +55,12 @@ class Theme:
         self.section_bg = "#303036"  # Section header bg
         self.param_bg = "#34343A"  # Parameter content area (same as bg2)
         self.edit_bg = "#3A3A41"  # Editable value fields (same as bg3)
-        self.placeholder_fg = "#A0A0A6"  # Placeholder / hint text (4.5:1 AA on bg)
+        self.placeholder_fg = "#ACACB2"  # Placeholder / hint text (4.6:1 AA on bg3)
         self.convert_all_bg = "#34343A"  # "Convert All" button
         self.warning_bg = "#3A2200"  # Warning banner background (dark amber)
 
         # Slicer badge colors (canonical source — use these instead of hardcoding)
-        self.badge_prusa = "#FF7B15"  # PrusaSlicer orange
+        self.badge_prusa = "#E56A00"  # PrusaSlicer orange (darkened for 3.1:1 AA-Large with white)
         self.badge_bambu = "#028A0F"  # BambuStudio green
         self.badge_orca = "#2196F3"  # OrcaSlicer blue
         self.badge_fg = "#FFFFFF"  # Badge text (white on colored bg)
