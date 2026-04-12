@@ -471,7 +471,7 @@ class OnlineProvider:
         url = urllib.parse.quote(url, safe=":/?#[]@!$&'()*,;=-._~%")
         req = urllib.request.Request(url, headers={"User-Agent": HTTP_USER_AGENT})
         ctx = self._get_ssl_ctx()
-        if self.__class__._ssl_degraded_flag:
+        if self.__class__.ssl_is_degraded():
             self._ssl_degraded = True
         with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
             total = int(resp.headers.get("Content-Length", 0) or 0)

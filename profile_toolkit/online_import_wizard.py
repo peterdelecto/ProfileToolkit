@@ -90,6 +90,15 @@ class OnlineImportWizard(tk.Toplevel):
         except tk.TclError:
             pass
 
+    def _safe_after_id(self, ms: int, func) -> str | None:
+        """Like _safe_after but returns the after ID (needed for after_cancel)."""
+        try:
+            if self.winfo_exists():
+                return self.after(ms, func)
+        except tk.TclError:
+            pass
+        return None
+
     def _init_traces_and_shortcuts(self) -> None:
         """Register filter traces and keyboard shortcuts (called once from __init__)."""
         self._show_step(0)
@@ -754,7 +763,7 @@ class OnlineImportWizard(tk.Toplevel):
             idle = time.time() - self._fetch_last_activity
             if idle < FETCH_TIMEOUT_MS / 1000:
                 remaining = int((FETCH_TIMEOUT_MS / 1000 - idle) * 1000) + 1000
-                self._watchdog_id = self.after(remaining, _watchdog)
+                self._watchdog_id = self._safe_after_id(remaining, _watchdog)
                 return
             self._fetch_done.set()
             self._on_catalog_error(
@@ -762,7 +771,7 @@ class OnlineImportWizard(tk.Toplevel):
                 "or try a different source."
             )
 
-        self._watchdog_id = self.after(FETCH_TIMEOUT_MS, _watchdog)
+        self._watchdog_id = self._safe_after_id(FETCH_TIMEOUT_MS, _watchdog)
 
     def _show_pane_status(self, msg: str, icon: Optional[str] = None) -> None:
         theme = self.theme
@@ -965,7 +974,7 @@ class OnlineImportWizard(tk.Toplevel):
             idle = time.time() - self._fetch_last_activity
             if idle < FETCH_TIMEOUT_MS / 1000:
                 remaining = int((FETCH_TIMEOUT_MS / 1000 - idle) * 1000) + 1000
-                self._watchdog_id = self.after(remaining, _watchdog)
+                self._watchdog_id = self._safe_after_id(remaining, _watchdog)
                 return
             self._fetch_done.set()
             self._on_catalog_error(
@@ -973,7 +982,7 @@ class OnlineImportWizard(tk.Toplevel):
                 "or try a different source."
             )
 
-        self._watchdog_id = self.after(FETCH_TIMEOUT_MS, _watchdog)
+        self._watchdog_id = self._safe_after_id(FETCH_TIMEOUT_MS, _watchdog)
 
     def _on_catalog_error(self, err: str) -> None:
         if self._current_step != 1:
