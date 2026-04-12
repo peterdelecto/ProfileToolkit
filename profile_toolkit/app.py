@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import secrets
 import subprocess
 import threading
 import tkinter as tk
 from copy import deepcopy
-from datetime import datetime
 from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 from typing import Optional
@@ -26,10 +26,12 @@ from .constants import (
     _TREE_ROW_HEIGHT,
     SETTING_ID_PREFIX,
     UI_FONT,
-    COMPARE_DEBUG_LOG,
     MAX_COLLISION_ATTEMPTS,
+    PRESET_SCAN_TIMEOUT_S,
     _ENTRY_CHARS,
 )
+
+_INSTANCE_LOCK_PORT = 47391
 from .theme import Theme
 from .models import (
     Profile,
@@ -40,9 +42,7 @@ from .models import (
     UnsupportedFormatError,
 )
 from .state import (
-    save_profile_state,
     restore_profile_state,
-    reapply_unlock_state,
     cleanup_stale_state,
 )
 from .panels import ProfileDetailPanel, ProfileListPanel, ComparePanel
@@ -327,11 +327,29 @@ class App(tk.Tk):
         theme = self.theme
 
         # Status bar (pack first so it stays at bottom)
-        self.status_var = tk.StringVar()
         status_frame = tk.Frame(self, bg=theme.bg)
         status_frame.pack(fill="x", side="bottom")
 
-        self._count_var = tk.StringVar()  # kept for API compat
+        self._status_label = tk.Label(
+            status_frame,
+            text="",
+            bg=theme.bg,
+            fg=theme.fg3,
+            font=(UI_FONT, 12),
+            padx=12,
+        )
+        self._status_label.pack(side="left")
+
+        self._count_label = tk.Label(
+            status_frame,
+            text="",
+            bg=theme.bg,
+            fg=theme.fg3,
+            font=(UI_FONT, 12),
+            padx=12,
+        )
+        self._count_label.pack(side="right")
+
         if self.detected_slicers:
             tk.Label(
                 status_frame,
@@ -534,9 +552,11 @@ class App(tk.Tk):
         self._current_tab = tab_name
 
     def _active_panel(self) -> ProfileListPanel:
+        # Compare tab handles its own state via compare_panel; menu actions
+        # always target the filament panel, which is the only list panel.
         return self.filament_panel
 
-    # ── File Operations ──
+    # --- File Operations ---
 
     def _on_import_json(self) -> None:
         paths = filedialog.askopenfilenames(
@@ -642,7 +662,7 @@ class App(tk.Tk):
                 pairs = self._resolve_preset_paths(panel, slicer_names)
                 if not pairs:
                     self._safe_after(
-                        0, lambda: self._preset_load_done(panel, [], 0, 0, slicer_names)
+                        0, lambda: self._preset_load_done(panel, [], 0, slicer_names)
                     )
                     return
 
@@ -651,7 +671,7 @@ class App(tk.Tk):
                     self._safe_after(
                         0,
                         lambda: self._preset_load_done(
-                            panel, [], 0, 0, slicer_names, errors
+                            panel, [], 0, slicer_names, errors
                         ),
                     )
                     return
@@ -668,7 +688,6 @@ class App(tk.Tk):
                         panel,
                         filament_batch,
                         skipped_process,
-                        resolved_count,
                         slicer_names,
                         errors,
                     ),
@@ -679,11 +698,12 @@ class App(tk.Tk):
                     self._safe_after(
                         0,
                         lambda: self._preset_load_done(
-                            panel, [], 0, 0, slicer_names, [f"Internal error: {e}"]
+                            panel, [], 0, slicer_names, [f"Internal error: {e}"]
                         ),
                     )
                 except Exception:
                     # _safe_after itself failed (widget destroyed) — reset flag directly
+                    logger.debug("Could not signal main thread after preset scan error")
                     with self._preset_lock:
                         self._preset_loading = False
 
@@ -703,7 +723,7 @@ class App(tk.Tk):
                         ),
                     )
 
-        self._bg_timer = threading.Timer(120, _bg_timeout)
+        self._bg_timer = threading.Timer(PRESET_SCAN_TIMEOUT_S, _bg_timeout)
         self._bg_timer.start()
 
     def _resolve_preset_paths(
@@ -716,9 +736,9 @@ class App(tk.Tk):
                 0, lambda n=name: panel._update_overlay_text(f"Scanning {n}...")
             )
             presets = SlicerDetector.find_user_presets(path)
-            for ptype, files in presets.items():
+            for profile_type, files in presets.items():
                 for fp in files:
-                    pairs.append((fp, ptype, name))
+                    pairs.append((fp, profile_type, name))
         return pairs
 
     def _load_preset_files(
@@ -794,7 +814,6 @@ class App(tk.Tk):
         panel: ProfileListPanel,
         filament_batch: list[Profile],
         skipped: int,
-        resolved_count: int,
         slicer_names: str,
         errors: Optional[list[str]] = None,
     ) -> None:
@@ -804,7 +823,8 @@ class App(tk.Tk):
         on the background thread. This method only does the lightweight UI
         updates: batched panel additions and status messages.
         """
-        self._preset_loading = False
+        with self._preset_lock:
+            self._preset_loading = False
         if hasattr(self, "_bg_timer") and self._bg_timer:
             self._bg_timer.cancel()
             self._bg_timer = None
@@ -856,6 +876,7 @@ class App(tk.Tk):
         Args:
             path_hint_tuples: List of (path, type_hint, origin) tuples
         """
+        self._filament_selection = []
         loaded_f, resolved_count = 0, 0
         errors = []
         all_new = []
@@ -922,7 +943,7 @@ class App(tk.Tk):
         status = f"Loaded {loaded_f} filament profiles. {total} total."
         self._update_status(status)
 
-    # ── Profile Actions ──
+    # --- Profile Actions ---
 
     def _on_unlock(self) -> None:
         """Unlock selected profiles with custom printer or make universal."""
@@ -1136,7 +1157,7 @@ class App(tk.Tk):
         if self._current_tab != "convert":
             self._switch_tab("convert")
 
-    # ── Conversion ──
+    # --- Conversion ---
 
     def _on_convert_profile(self, profile: "Profile", target: str) -> None:
         """Convert a profile to a different slicer format, add as a copy, and select it."""
@@ -1184,7 +1205,7 @@ class App(tk.Tk):
         messagebox.showinfo("Profile Converted", "\n".join(lines), parent=self)
         self._update_status(f"Converted to {short}: {new_profile.name}")
 
-    # ── Export Operations ──
+    # --- Export Operations ---
 
     def _warn_missing_conversion_keys(self, profiles: list) -> bool:
         """Check if any profiles have missing conversion keys. If so, warn the user.
@@ -1480,8 +1501,9 @@ class App(tk.Tk):
         self, profile: Profile, out_dir: str, organize: bool, fmt: str = "json"
     ) -> str:
         """Resolve destination directory and filename with collision handling."""
+        safe_type = re.sub(r"[^\w\-]", "_", profile.profile_type)
         dest_dir = (
-            os.path.join(out_dir, profile.profile_type)
+            os.path.join(out_dir, safe_type)
             if organize and profile.profile_type != "unknown"
             else out_dir
         )
@@ -1602,6 +1624,7 @@ class App(tk.Tk):
         ):
             return
         panel.profiles.clear()
+        self._filament_selection = []
         panel._refresh_list()
         panel.detail._show_placeholder()
 
@@ -1741,29 +1764,30 @@ class App(tk.Tk):
         )
 
     def _update_status(self, msg: str = "") -> None:
-        """Update status bar text (no-op if status label not present)."""
-        if hasattr(self, "_status_label") and msg:
-            try:
-                self._status_label.configure(text=msg)
-            except tk.TclError:
-                pass
+        """Update status bar text."""
+        try:
+            self._status_label.configure(text=msg)
+        except (tk.TclError, AttributeError):
+            pass
 
     def _update_counts(self) -> None:
-        """Update profile count display (no-op if count label not present)."""
-        if hasattr(self, "_count_label"):
-            try:
-                count = len(
-                    getattr(self, "list_panel", None) and self.list_panel.profiles or []
-                )
-                self._count_label.configure(text=f"{count} profiles")
-            except tk.TclError:
-                pass
+        """Update profile count display."""
+        try:
+            profiles = (
+                getattr(self, "filament_panel", None)
+                and self.filament_panel.profiles
+                or []
+            )
+            count = len(profiles)
+            self._count_label.configure(text=f"{count} profiles")
+        except (tk.TclError, AttributeError):
+            pass
 
     def _show_temp_status(self, msg: str, duration: int = 4000) -> None:
         """Show a temporary status message that auto-clears."""
         self._update_status(msg)
         if msg:
-            self.after(duration, lambda: self._update_status(""))
+            self._safe_after(duration, lambda: self._update_status(""))
 
     def _on_show_folder(self) -> None:
         """Open the source folder of the currently selected profile."""
@@ -1794,7 +1818,7 @@ class App(tk.Tk):
                 elif _PLATFORM == "Windows":
                     subprocess.Popen(["explorer", os.path.normpath(folder)])
                 else:
-                    subprocess.Popen(["xdg-open", folder])
+                    subprocess.Popen(["xdg-open", "--", folder])
             else:
                 messagebox.showinfo(
                     "Folder Not Found", f"Source folder not found:\n{folder}"
@@ -1828,7 +1852,7 @@ def _acquire_instance_lock() -> "socket.socket | None":
     sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
     sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 0)
     try:
-        sock.bind(("127.0.0.1", 47391))
+        sock.bind(("127.0.0.1", _INSTANCE_LOCK_PORT))
         return sock
     except OSError:
         sock.close()
@@ -1856,7 +1880,7 @@ def run() -> None:
     try:
         cleanup_stale_state(max_age_days=90)
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("Stale state cleanup failed", exc_info=True)
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",

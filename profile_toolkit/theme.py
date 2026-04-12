@@ -65,15 +65,15 @@ class Theme:
         self.badge_orca = "#2196F3"  # OrcaSlicer blue
         self.badge_fg = "#FFFFFF"  # Badge text (white on colored bg)
 
-        # ── Win95 Bevels (adapted to blue-gray) ──
+        # --- Win95 Bevels (adapted to blue-gray) ---
         self.bevel_light = "#EFEFF0"  # Raised edge highlight
         self.bevel_shadow = "#4A4A51"  # Sunken edge shadow
 
-        # ── Compare view diff backgrounds ──
+        # --- Compare view diff backgrounds ---
         self.compare_changed_bg = "#453040"  # Plum tint for changed rows (10.2:1 vs fg)
         self.compare_missing_bg = "#502838"  # Red-plum for missing rows (10.8:1 vs fg)
 
-        # ── Semantic color roles ──
+        # --- Semantic color roles ---
         # Action:  accent (lime)    = interactive / clickable / editable
         # State:   inherited        = value comes from parent profile
         #          modified         = user has changed this value
@@ -85,10 +85,10 @@ class Theme:
         self.modified = self.converted  # #4B9FE8 — blue
         self.info = self.success  # #4DD0E1 — cyan
 
-        # ── Popup-specific semantic colors ──
+        # --- Popup-specific semantic colors ---
         self.recommended = "#4DB6AC"  # Teal — "Recommended for" labels (5.5:1 on bg3)
         self.note = "#FF8C42"  # Orange — advisory notes in popups (4.5:1 AA on bg4)
 
-        # ── Legacy aliases ──
+        # --- Legacy aliases ---
         self.accent2 = self.secondary  # Backwards compat (was accent_hover)
         self.locked = self.error  # Backwards compat

@@ -34,12 +34,14 @@ class CommunityPresetsProvider(OnlineProvider):
         self._status_fn = status_fn
         entries = []
         repo = "DRIgnazGortngschirl/bambulab-studio-orca-slicer-presets"
-        for ptype in ("filament", "machine", "process"):
-            self._report(f"Fetching {ptype} profiles...")
+        for profile_type in ("filament", "machine", "process"):
+            self._report(f"Fetching {profile_type} profiles...")
             try:
-                nodes = self._fetch_git_tree(repo, ptype)
+                nodes = self._fetch_git_tree(repo, profile_type)
             except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError) as e:
-                logger.error("Failed to fetch %s from %s: %s", ptype, self.name, e)
+                logger.error(
+                    "Failed to fetch %s from %s: %s", profile_type, self.name, e
+                )
                 continue
             for node in nodes:
                 path = node["path"]
@@ -48,19 +50,19 @@ class CommunityPresetsProvider(OnlineProvider):
                 fname = path.rsplit("/", 1)[-1].replace(".json", "")
                 printer, nozzle = "", ""
                 if " @" in fname:
-                    printer, nozzle = parse_printer_nozzle(
-                        fname.split(" @", 1)[1]
-                    )
+                    printer, nozzle = parse_printer_nozzle(fname.split(" @", 1)[1])
                 entry = OnlineProfileEntry(
                     name=fname,
-                    material=guess_material(fname) if ptype == "filament" else "",
+                    material=(
+                        guess_material(fname) if profile_type == "filament" else ""
+                    ),
                     brand=guess_brand(fname),
                     printer=printer,
                     slicer="OrcaSlicer",
                     url=f"https://raw.githubusercontent.com/{repo}/main/{path}",
-                    description=f"Community preset ({ptype}) — {fname}",
+                    description=f"Community preset ({profile_type}) — {fname}",
                     provider_id=self.id,
-                    metadata={"profile_type": ptype},
+                    metadata={"profile_type": profile_type},
                 )
                 entry.nozzle = nozzle
                 entries.append(entry)
@@ -181,11 +183,11 @@ class DgaucheFilamentLibProvider(OnlineProvider):
             # Directory structure: Printer/file
             printer = parts[0] if len(parts) >= 2 else ""
 
-            ptype = "filament"
+            profile_type = "filament"
             if "Process" in fname:
-                ptype = "process"
+                profile_type = "process"
             elif "Machine" in fname:
-                ptype = "machine"
+                profile_type = "machine"
 
             entries.append(
                 OnlineProfileEntry(
@@ -197,7 +199,7 @@ class DgaucheFilamentLibProvider(OnlineProvider):
                     url=f"https://raw.githubusercontent.com/{repo}/main/{path}",
                     description=f"dgauche — {printer} — {display}",
                     provider_id=self.id,
-                    metadata={"profile_type": ptype},
+                    metadata={"profile_type": profile_type},
                 )
             )
         self._report(f"Found {len(entries)} dgauche profiles")

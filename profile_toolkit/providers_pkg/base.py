@@ -14,7 +14,7 @@ import urllib.request
 from pathlib import Path
 from typing import Callable, Optional
 
-from ..constants import HTTP_USER_AGENT, _KNOWN_VENDORS
+from ..constants import HTTP_USER_AGENT
 from ..utils import guess_material, guess_brand
 
 logger = logging.getLogger(__name__)
@@ -138,7 +138,7 @@ class OnlineProvider:
         try:
             self._catalog_cache_path().write_text(json.dumps(data), encoding="utf-8")
         except OSError:
-            pass
+            logger.debug("Cache write failed", exc_info=True)
 
     def _load_catalog_cache(self) -> Optional[list[OnlineProfileEntry]]:
         """Load catalog from disk cache if fresh enough."""
@@ -169,6 +169,7 @@ class OnlineProvider:
                 entries.append(e)
             return entries
         except (OSError, json.JSONDecodeError, KeyError):
+            logger.debug("Cache read failed", exc_info=True)
             return None
 
     # ------------------------------------------------------------------
@@ -215,6 +216,9 @@ class OnlineProvider:
         """Read profile bytes from a bundled file, or return None to fall back online."""
         if entry.metadata.get("bundled") and entry.metadata.get("local_path"):
             local_path = Path(entry.metadata["local_path"])
+            if not local_path.is_absolute() or ".." in local_path.parts:
+                logger.warning("Suspicious cache path rejected: %s", local_path)
+                return None
             if local_path.is_file():
                 return local_path.read_bytes(), local_path.name
         return None
@@ -242,6 +246,7 @@ class OnlineProvider:
                 with open(manifest_path, "r", encoding="utf-8") as f:
                     cls._manifest_cache = json.load(f)
             except (OSError, json.JSONDecodeError, ValueError):
+                logger.debug("Manifest read failed", exc_info=True)
                 cls._manifest_cache = {}
             return cls._manifest_cache
 
@@ -277,7 +282,7 @@ class OnlineProvider:
                 remote_sha = data[0].get("sha", "")
                 return remote_sha != bundled_sha
         except (OSError, urllib.error.URLError, json.JSONDecodeError, ValueError):
-            pass
+            logger.debug("Update check failed", exc_info=True)
         return False
 
     # ------------------------------------------------------------------
@@ -304,7 +309,13 @@ class OnlineProvider:
                 if catalog:
                     self._save_catalog_cache(catalog)
                     return catalog
-            except Exception as e:
+            except (
+                OSError,
+                urllib.error.URLError,
+                json.JSONDecodeError,
+                ValueError,
+                KeyError,
+            ) as e:
                 logger.warning("Online fetch failed for %s: %s", self.name, e)
             # 3. Fall back to bundled profiles (offline)
             bundled = self._bundled_dir()
@@ -426,7 +437,8 @@ class OnlineProvider:
     @classmethod
     def ssl_is_degraded(cls) -> bool:
         """Return True if SSL verification is disabled (MITM vulnerability)."""
-        return cls._ssl_degraded_flag
+        with cls._ssl_lock:
+            return cls._ssl_degraded_flag
 
     def _fetch_url(
         self,

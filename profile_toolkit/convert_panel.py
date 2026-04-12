@@ -20,6 +20,9 @@ from .constants import (
     _ENTRY_CHARS,
     _LABEL_COL_WIDTH,
     _VAL_COL_WIDTH,
+    NAME_TRUNCATE_SHORT,
+    NAME_TRUNCATE_MEDIUM,
+    NAME_TRUNCATE_LONG,
     UI_FONT,
 )
 from .theme import Theme
@@ -61,12 +64,12 @@ class ConvertDetailPanel(tk.Frame):
 
         self._build_ui()
 
-    # ── Build static UI shell ─────────────────────────────────────────────────
+    # --- Build static UI shell ---
 
     def _build_ui(self) -> None:
         theme = self.theme
 
-        # ── Header ────────────────────────────────────────────────────────────
+        # --- Header ---
         self._header = tk.Frame(self, bg=theme.bg2)
         self._header.pack(fill="x")
 
@@ -183,13 +186,13 @@ class ConvertDetailPanel(tk.Frame):
         # Separator
         tk.Frame(self._header, bg=theme.border, height=1).pack(fill="x")
 
-        # ── Scrollable body ──────────────────────────────────────────────────
+        # --- Scrollable body ---
         self._scroll = ScrollableFrame(self, bg=theme.bg)
         self._scroll.pack(fill="both", expand=True)
 
         self._show_idle()
 
-        # #13: Keyboard shortcut — Ctrl/Cmd+Return to convert
+        # Keyboard shortcut — Ctrl/Cmd+Return to convert
         from .constants import _PLATFORM
 
         _mod = "Command" if _PLATFORM == "Darwin" else "Control"
@@ -202,7 +205,7 @@ class ConvertDetailPanel(tk.Frame):
             ),
         )
 
-    # ── Public API ────────────────────────────────────────────────────────────
+    # --- Public API ---
 
     def show_profile(self, profile: Profile) -> None:
         """Called by ProfileListPanel._on_select when in convert mode."""
@@ -211,7 +214,11 @@ class ConvertDetailPanel(tk.Frame):
 
         # Update convert button with profile name
         name = profile.name or "Profile"
-        short_name = name[:25] + "…" if len(name) > 25 else name
+        short_name = (
+            name[:NAME_TRUNCATE_SHORT] + "…"
+            if len(name) > NAME_TRUNCATE_SHORT
+            else name
+        )
         self._btn_convert.configure(text=f"Convert \u201c{short_name}\u201d")
 
         # Update header
@@ -248,6 +255,7 @@ class ConvertDetailPanel(tk.Frame):
     def clear(self) -> None:
         """Reset to idle state."""
         self._profile = None
+        self._target_slicer = None
         self._converted = None
         self._filled.clear()
         self._lbl_name.configure(text="")
@@ -257,12 +265,12 @@ class ConvertDetailPanel(tk.Frame):
         self._to_var.set("")
         self._show_idle()
 
-    # ── Target change ─────────────────────────────────────────────────────────
+    # --- Target change ---
 
     def _on_target_changed(self, event: Optional[tk.Event] = None) -> None:
         target = self._to_var.get()
         if target and target != self._target_slicer:
-            # #2: Warn before discarding filled values
+            # Warn before discarding filled values
             if self._filled:
                 if not messagebox.askyesno(
                     "Unsaved Changes",
@@ -277,13 +285,13 @@ class ConvertDetailPanel(tk.Frame):
             self._filled.clear()
             self._preview_conversion()
 
-    # ── Conversion preview ────────────────────────────────────────────────────
+    # --- Conversion preview ---
 
     def _preview_conversion(self) -> None:
         if not self._profile or not self._target_slicer:
             self._show_idle()
             return
-        # #7: Handle conversion errors gracefully
+        # Handle conversion errors gracefully
         try:
             self._converted, dropped, missing, warnings = self._profile.convert_to(
                 self._target_slicer
@@ -323,7 +331,7 @@ class ConvertDetailPanel(tk.Frame):
                 del self._filled[k]
         self._rebuild()
 
-    # ── Idle state ────────────────────────────────────────────────────────────
+    # --- Idle state ---
 
     def _show_idle(self) -> None:
         body = self._scroll.body
@@ -339,14 +347,14 @@ class ConvertDetailPanel(tk.Frame):
             pady=60
         )
 
-    # ── Full rebuild ──────────────────────────────────────────────────────────
+    # --- Full rebuild ---
 
     def _rebuild(self, reset_scroll: bool = True) -> None:
         body = self._scroll.body
         for child in body.winfo_children():
             child.destroy()
 
-        # #8: Guard against None profile
+        # Guard against None profile
         if not self._converted or not self._profile:
             self._show_idle()
             return
@@ -438,7 +446,7 @@ class ConvertDetailPanel(tk.Frame):
             self._scroll.canvas.yview_moveto(0)
         self._scroll.bind_scroll_recursive()
 
-    # ── Section header ────────────────────────────────────────────────────────
+    # --- Section header ---
 
     def _render_section_header(
         self, name: str, collapsed: bool, attention: int
@@ -491,7 +499,7 @@ class ConvertDetailPanel(tk.Frame):
         for w in (hdr, chevron):
             w.bind("<Button-1>", _toggle)
 
-    # ── Mapped row (editable on click) ──────────────────────────────────────
+    # --- Mapped row (editable on click) ---
 
     def _render_mapped_row(self, key: str, label: str, value: Any) -> None:
         theme = self.theme
@@ -565,7 +573,7 @@ class ConvertDetailPanel(tk.Frame):
         # Info popup icon (same as filament detail pane)
         self._render_info_icon(row, key, bg)
 
-    # ── Missing row (editable, plum highlight) ─────────────────────────────
+    # --- Missing row (editable, plum highlight) ---
 
     def _render_missing_row(self, key: str, label: str, material: str) -> None:
         theme = self.theme
@@ -654,13 +662,13 @@ class ConvertDetailPanel(tk.Frame):
             prefill = None
             if rec and "typical" in rec:
                 prefill = str(rec["typical"])
-            elif conv_default:
+            elif conv_default and len(conv_default) > 0:
                 prefill = str(conv_default[0])
 
             if prefill:
                 entry.insert(0, prefill)
                 entry.configure(fg=theme.fg3)
-                # #10: "(suggested)" hint next to pre-filled values
+                # "(suggested)" hint next to pre-filled values
                 tk.Label(
                     val_frame,
                     text="(recommended default)",
@@ -680,7 +688,7 @@ class ConvertDetailPanel(tk.Frame):
         # Info popup icon (same as filament detail pane)
         self._render_info_icon(row, key, bg, material)
 
-    # ── Dropped row ───────────────────────────────────────────────────────────
+    # --- Dropped row ---
 
     def _render_dropped_row(self, key: str, label: str) -> None:
         theme = self.theme
@@ -718,7 +726,7 @@ class ConvertDetailPanel(tk.Frame):
             pady=4,
         ).grid(row=0, column=1, sticky="w", padx=(0, 16))
 
-    # ── Knowledge tip ─────────────────────────────────────────────────────────
+    # --- Knowledge tip ---
 
     def _render_info_icon(
         self, row: tk.Frame, key: str, bg: str, material: str = "General"
@@ -743,13 +751,13 @@ class ConvertDetailPanel(tk.Frame):
         icon.bind("<Leave>", lambda e, w=icon: w.configure(fg=theme.fg3))
         _InfoPopup(icon, key, material, theme=theme)
 
-    # ── Cancel edit ────────────────────────────────────────────────────────────
+    # --- Cancel edit ---
 
     def _cancel_and_rebuild(self) -> None:
         self._edit_cancelled = True
         self._rebuild()
 
-    # ── Entry commit ──────────────────────────────────────────────────────────
+    # --- Entry commit ---
 
     def _commit_entry(self, key: str, entry: tk.Entry) -> None:
         """Store the entered value in the preview dict and rebuild."""
@@ -763,7 +771,7 @@ class ConvertDetailPanel(tk.Frame):
             self._rebuild(reset_scroll=False)
             return
 
-        # #6: Skip phantom edits — don't store if value unchanged
+        # Skip phantom edits — don't store if value unchanged
         original = self._converted.data.get(key) if self._converted else None
         parsed_val: Any
         try:
@@ -775,7 +783,7 @@ class ConvertDetailPanel(tk.Frame):
         except ValueError:
             parsed_val = val
 
-        # #15: Basic temperature range validation — block obviously wrong values
+        # Basic temperature range validation — block obviously wrong values
         key_lower = key.lower()
         if isinstance(parsed_val, (int, float)):
             if "temp" in key_lower and not (-50 <= parsed_val <= 500):
@@ -805,10 +813,10 @@ class ConvertDetailPanel(tk.Frame):
             return
 
         self._filled[key] = parsed_val
-        # #4: Always rebuild to swap entry back to label and refresh badges
+        # Always rebuild to swap entry back to label and refresh badges
         self._rebuild(reset_scroll=False)
 
-    # ── Convert action ────────────────────────────────────────────────────────
+    # --- Convert action ---
 
     def _do_convert(self) -> None:
         if not self._profile or not self._target_slicer:
@@ -826,9 +834,9 @@ class ConvertDetailPanel(tk.Frame):
             new_profile.data[k] = v
             new_profile._missing_conversion_keys.discard(k)
 
-        # #12: Name already has old suffix stripped by convert_to; append new one
+        # Name already has old suffix stripped by convert_to; append new one
         short = SLICER_SHORT_LABELS.get(self._target_slicer, self._target_slicer)
-        new_profile.data["name"] = f"{new_profile.name} ({short})"
+        new_profile.data["name"] = f"{new_profile.name or 'Profile'} ({short})"
 
         # Add to profile list
         panel = self.app.filament_panel
@@ -860,7 +868,7 @@ class ConvertDetailPanel(tk.Frame):
         elif hasattr(self.app, "_on_export"):
             self.app._on_export()
 
-    # ── Helpers ───────────────────────────────────────────────────────────────
+    # --- Helpers ---
 
     @staticmethod
     def _format_value(value: Any) -> str:
@@ -875,7 +883,11 @@ class ConvertDetailPanel(tk.Frame):
         # Truncate long gcode / multi-line values
         if "\n" in s:
             first = s.split("\n", 1)[0]
-            return first[:80] + "..." if len(first) > 80 else first + "..."
-        if len(s) > 120:
-            return s[:117] + "..."
+            return (
+                first[:NAME_TRUNCATE_MEDIUM] + "..."
+                if len(first) > NAME_TRUNCATE_MEDIUM
+                else first + "..."
+            )
+        if len(s) > NAME_TRUNCATE_LONG:
+            return s[: NAME_TRUNCATE_LONG - 3] + "..."
         return s

@@ -35,6 +35,7 @@ class ProfileListPanel(tk.Frame):
         self.profiles = []
         self._mode = "detail"  # "detail" or "convert"
 
+        self._spinner_after_id = None
         self._build()
 
     def _build(self) -> None:
@@ -54,7 +55,8 @@ class ProfileListPanel(tk.Frame):
         left = tk.Frame(paned, bg=theme.bg2)
         paned.add(left, minsize=320, stretch="always")
         # Set left pane to 40% of available width once layout is ready
-        self.after(50, self._set_initial_sash)
+        if self.winfo_exists():
+            self.after(50, self._set_initial_sash)
         # Re-fire when panel is first mapped (handles initially-hidden tabs)
         self._sash_needs_init = True
         self.bind("<Map>", self._on_map_sash, add="+")
@@ -63,7 +65,7 @@ class ProfileListPanel(tk.Frame):
         self._build_tree(left)
         self._build_actions(left)
 
-        # ── Right: container holds both detail and convert panels (stacked via grid) ──
+        # --- Right: container holds both detail and convert panels (stacked via grid) ---
         self._right_container = tk.Frame(paned, bg=theme.bg)
         paned.add(self._right_container, minsize=300, stretch="always")
         self._right_container.grid_rowconfigure(0, weight=1)
@@ -103,9 +105,14 @@ class ProfileListPanel(tk.Frame):
         """Remove StringVar traces to prevent leaks on panel recreation."""
         if event and event.widget is not self:
             return
+        if self._filter_after_id:
+            try:
+                self.after_cancel(self._filter_after_id)
+            except (tk.TclError, ValueError):
+                pass
         try:
             self._filter_var.trace_remove("write", self._filter_trace_id)
-        except (tk.TclError, ValueError, AttributeError):
+        except (tk.TclError, ValueError):
             pass
 
     def _set_initial_sash(self) -> None:
@@ -117,7 +124,7 @@ class ProfileListPanel(tk.Frame):
 
     def _on_map_sash(self, event=None) -> None:
         """Re-apply sash position when panel is first mapped (for initially-hidden tabs)."""
-        if self._sash_needs_init:
+        if self._sash_needs_init and self.winfo_exists():
             self.after(50, self._set_initial_sash)
 
     def set_mode(self, mode: str) -> None:
@@ -140,12 +147,12 @@ class ProfileListPanel(tk.Frame):
         # Refresh the right panel for current selection
         self._on_select()
 
-    # ── SECTION: Filter UI ──
+    # --- SECTION: Filter UI ---
 
     def _build_filter(self, parent: tk.Widget) -> None:
         theme = self.theme
 
-        # ── Filter row ──
+        # --- Filter row ---
         filter_frame = tk.Frame(
             parent, bg=theme.bg3, highlightbackground=theme.border, highlightthickness=1
         )
@@ -185,7 +192,7 @@ class ProfileListPanel(tk.Frame):
         self._filter.bind("<FocusOut>", self._filter_out)
         self._placeholder = True
 
-        # ── Filter-by column dropdown ──
+        # --- Filter-by column dropdown ---
         filter_options = {
             "All columns": "none",
             "Printer": "printer",
@@ -245,13 +252,14 @@ class ProfileListPanel(tk.Frame):
             self.after_cancel(self._filter_after_id)
         self._filter_after_id = self.after(150, self._refresh_list)
 
-    # ── SECTION: Treeview Rendering and Sorting ──
+    # --- SECTION: Treeview Rendering and Sorting ---
 
     def _build_tree(self, parent: tk.Widget) -> None:
         theme = self.theme
         self._rename_active = False  # Guard against overlapping rename operations
+        self._rename_finishing = False
 
-        # ── Treeview (must exist before trace) ──
+        # --- Treeview (must exist before trace) ---
         tree_frame = tk.Frame(parent, bg=theme.bg2)
         tree_frame.pack(fill="both", expand=True, padx=6, pady=(0, 4))
         self._tree_frame = tree_frame  # Keep reference for overlay
@@ -401,21 +409,11 @@ class ProfileListPanel(tk.Frame):
     @staticmethod
     def _profile_status(p: Profile) -> tuple:
         if p.modified:
-            return ("Universal", "status_converted")
+            return ("Modified", "status_converted")
         elif p.is_locked:
-            if p.compatible_printers:
-                return ("Printer-Locked", "status_locked")
-            else:
-                return ("Printer-Locked", "status_locked")
+            return ("Printer-Locked", "status_locked")
         else:
-            return ("Modified", "status_universal")
-
-    # Slicer badge letters for the tree column
-    _SLICER_LETTERS = {
-        "PrusaSlicer": "P",
-        "BambuStudio": "B",
-        "OrcaSlicer": "O",
-    }
+            return ("Universal", "status_universal")
 
     def _create_slicer_badges(self) -> dict[str, tk.PhotoImage]:
         """Generate 20x20 colored circle badge images with slicer letters."""
@@ -429,13 +427,11 @@ class ProfileListPanel(tk.Frame):
         size = 20
         for origin, (color, letter) in specs.items():
             img = tk.PhotoImage(width=size, height=size)
-            # Parse hex color
-            r, g, b = int(color[1:3], 16), int(color[3:5], 16), int(color[5:7], 16)
-            cx, cy, radius = size // 2, size // 2, size // 2 - 1
+            center_x, center_y, radius = size // 2, size // 2, size // 2 - 1
             for y in range(size):
                 for x in range(size):
-                    dx, dy = x - cx, y - cy
-                    if dx * dx + dy * dy <= radius * radius:
+                    delta_x, delta_y = x - center_x, y - center_y
+                    if delta_x * delta_x + delta_y * delta_y <= radius * radius:
                         img.put(color, (x, y))
             # Draw letter (white) -- simple 5x7 bitmap font for P, B, O
             glyphs = {
@@ -468,12 +464,12 @@ class ProfileListPanel(tk.Frame):
                 ],
             }
             glyph = glyphs.get(letter, [])
-            gw, gh = 5, 7
-            ox, oy = cx - gw // 2, cy - gh // 2
-            for gy, row_str in enumerate(glyph):
-                for gx, ch in enumerate(row_str):
+            glyph_w, glyph_h = 5, 7
+            glyph_ox, glyph_oy = center_x - glyph_w // 2, center_y - glyph_h // 2
+            for glyph_y, row_str in enumerate(glyph):
+                for glyph_x, ch in enumerate(row_str):
                     if ch == "#":
-                        px, py = ox + gx, oy + gy
+                        px, py = glyph_ox + glyph_x, glyph_oy + glyph_y
                         if 0 <= px < size and 0 <= py < size:
                             img.put("#FFFFFF", (px, py))
             badges[origin] = img
@@ -599,7 +595,7 @@ class ProfileListPanel(tk.Frame):
             if hasattr(self.app, "_on_filament_selection_changed"):
                 self.app._on_filament_selection_changed()
 
-    # ── SECTION: Overlay Status UI ──
+    # --- SECTION: Overlay Status UI ---
 
     def _show_overlay(
         self, text: str, show_spinner: bool = False, show_progress: bool = False
@@ -684,11 +680,17 @@ class ProfileListPanel(tk.Frame):
         try:
             self._spinner_idx = (self._spinner_idx + 1) % len(self._spinner_chars)
             self._spinner_label.configure(text=self._spinner_chars[self._spinner_idx])
-            self._overlay.after(400, self._spinner_animate)
+            self._spinner_after_id = self._overlay.after(400, self._spinner_animate)
         except tk.TclError:
             pass
 
     def _hide_overlay(self) -> None:
+        if hasattr(self, "_spinner_after_id") and self._spinner_after_id:
+            try:
+                self.after_cancel(self._spinner_after_id)
+            except (tk.TclError, ValueError):
+                pass
+            self._spinner_after_id = None
         if self._overlay:
             # Stop spinner animation before destroying overlay
             self._spinner_idx = 0
@@ -699,7 +701,7 @@ class ProfileListPanel(tk.Frame):
             self._overlay = None
             self._progress_canvas = None
 
-    # ── SECTION: Tooltip Support ──
+    # --- SECTION: Tooltip Support ---
 
     def _on_tree_motion(self, event: tk.Event) -> None:
         item = self.tree.identify_row(event.y)
@@ -748,7 +750,8 @@ class ProfileListPanel(tk.Frame):
             ).pack()
             self._tree_tip = tooltip_window
 
-        self._tree_tip_after = self.tree.after(_TREE_TOOLTIP_DELAY_MS, _show)
+        if self.tree.winfo_exists():
+            self._tree_tip_after = self.tree.after(_TREE_TOOLTIP_DELAY_MS, _show)
 
     def _on_tree_leave(self, event: tk.Event) -> None:
         if self._tree_tip_after:
@@ -758,12 +761,12 @@ class ProfileListPanel(tk.Frame):
             self._tree_tip.destroy()
             self._tree_tip = None
 
-    # ── SECTION: Actions and Context Menu ──
+    # --- SECTION: Actions and Context Menu ---
 
     def _build_actions(self, parent: tk.Widget) -> None:
         theme = self.theme
 
-        # ── Action rows below treeview ──
+        # --- Action rows below treeview ---
         # Row 1: list management (left) + utility (right)
         action_row1 = tk.Frame(parent, bg=theme.bg2)
         action_row1.pack(fill="x", padx=6, pady=(0, 2))
@@ -868,7 +871,7 @@ class ProfileListPanel(tk.Frame):
         count = len(sel)
         sel_profiles = self.get_selected_profiles()
 
-        # ── Primary actions ──
+        # --- Primary actions ---
         menu.add_command(
             label=f"Make {count} profile{'s' if count > 1 else ''} universal...",
             command=self.app._on_unlock,
@@ -922,7 +925,7 @@ class ProfileListPanel(tk.Frame):
                 )
             menu.add_cascade(label="Convert to...", menu=convert_menu)
 
-        # ── Edit ──
+        # --- Edit ---
         menu.add_separator()
         if count == 1:
             menu.add_command(label="Rename", command=self._rename_selected)
@@ -933,7 +936,7 @@ class ProfileListPanel(tk.Frame):
                 label="Duplicate", command=self.app._on_create_from_profile
             )
 
-        # ── View ──
+        # --- View ---
         menu.add_separator()
         if count == 2:
             menu.add_command(
@@ -951,7 +954,7 @@ class ProfileListPanel(tk.Frame):
                 command=lambda p=p: self.detail._show_changelog(p),
             )
 
-        # ── Remove ──
+        # --- Remove ---
         menu.add_separator()
         menu.add_command(label="Remove from list", command=self.app._on_remove)
         menu.add_command(
@@ -961,7 +964,7 @@ class ProfileListPanel(tk.Frame):
 
         menu.tk_popup(event.x_root, event.y_root)
 
-    # ── SECTION: Inline and Batch Rename ──
+    # --- SECTION: Inline and Batch Rename ---
 
     def _on_batch_rename(self) -> None:
         """Open batch rename dialog for selected profiles."""
@@ -1084,7 +1087,7 @@ class ProfileListPanel(tk.Frame):
             self._start_inline_rename(item, idx)
         return "break"  # Prevent default expand/collapse behavior
 
-    # ── SECTION: Profile Management ──
+    # --- SECTION: Profile Management ---
 
     def get_selected_profiles(self) -> list:
         seen_indices = set()
@@ -1185,7 +1188,9 @@ class ProfileListPanel(tk.Frame):
             try:
                 fpath = os.path.realpath(fpath)
                 # Reject paths outside user's home or containing suspicious traversal
-                if ".." in os.path.relpath(fpath, os.path.expanduser("~")):
+                if not os.path.realpath(fpath).startswith(
+                    os.path.realpath(os.path.expanduser("~")) + os.sep
+                ):
                     errors.append(
                         f"{os.path.basename(fpath)}: path outside home directory"
                     )

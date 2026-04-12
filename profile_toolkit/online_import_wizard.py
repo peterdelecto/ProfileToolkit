@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import tempfile
+import re
 import threading
 import tkinter as tk
 import urllib.error
@@ -77,6 +78,18 @@ class OnlineImportWizard(tk.Toplevel):
         self._fetch_last_activity = 0.0  # heartbeat timestamp for watchdog
 
         self._build_chrome()
+        self._init_traces_and_shortcuts()
+
+    def _safe_after(self, ms: int, func) -> None:
+        """Schedule callback only if widget still exists (prevents TclError from threads)."""
+        try:
+            if self.winfo_exists():
+                self.after(ms, func)
+        except tk.TclError:
+            pass
+
+    def _init_traces_and_shortcuts(self) -> None:
+        """Register filter traces and keyboard shortcuts (called once from __init__)."""
         self._show_step(0)
 
         # Filter change traces (added once here, guarded in _apply_filters)
@@ -181,7 +194,7 @@ class OnlineImportWizard(tk.Toplevel):
     def _build_chrome(self) -> None:
         theme = self.theme
 
-        # ── Step indicator bar ──
+        # --- Step indicator bar ---
         self._step_bar = tk.Frame(self, bg=theme.bg2)
         self._step_bar.pack(fill="x")
         self._step_labels = []
@@ -209,16 +222,16 @@ class OnlineImportWizard(tk.Toplevel):
                     font=(UI_FONT, 12),
                 ).pack(side="left")
 
-        # ── Separator ──
+        # --- Separator ---
         tk.Frame(self, bg=theme.border, height=1).pack(fill="x")
 
-        # ── Footer nav buttons (pack bottom-first so they're always visible) ──
+        # --- Footer nav buttons (pack bottom-first so they're always visible) ---
         self._footer_sep = tk.Frame(self, bg=theme.border, height=1)
         self._footer_sep.pack(fill="x", side="bottom")
         self._footer = tk.Frame(self, bg=theme.bg2)
         self._footer.pack(fill="x", side="bottom")
 
-        # ── Content area (fills remaining space between step bar and footer) ──
+        # --- Content area (fills remaining space between step bar and footer) ---
         self._content = tk.Frame(self, bg=theme.bg)
         self._content.pack(fill="both", expand=True)
         self._btn_cancel = make_btn(
@@ -298,7 +311,7 @@ class OnlineImportWizard(tk.Toplevel):
         ]
         builders[step]()
 
-    # ── Step 1: Choose Source ──
+    # --- Step 1: Choose Source ---
 
     def _build_step_source(self) -> None:
         theme = self.theme
@@ -441,7 +454,7 @@ class OnlineImportWizard(tk.Toplevel):
         idx = max(0, min(idx, len(ids) - 1))
         fn(ids[idx])
 
-    # ── Step 2: Browse & Select ──
+    # --- Step 2: Browse & Select ---
 
     def _build_step_browse(self) -> None:
         theme = self.theme
@@ -653,9 +666,7 @@ class OnlineImportWizard(tk.Toplevel):
                 lbl = getattr(self, "_pane_status_label", None)
                 if lbl and lbl.winfo_exists():
                     lbl.configure(text=m)
-                    import re as _re
-
-                    match = _re.search(r"(\d+)/(\d+)", m)
+                    match = re.search(r"(\d+)/(\d+)", m)
                     pb = getattr(self, "_pane_progress", None)
                     if match and pb and pb.winfo_exists():
                         cur, tot = int(match.group(1)), int(match.group(2))
@@ -840,9 +851,9 @@ class OnlineImportWizard(tk.Toplevel):
 
         # Fire non-blocking freshness check if catalog came from bundle
         if any(e.metadata.get("bundled") for e in catalog):
-            self.after(500, self._check_for_updates)
+            self._safe_after(500, self._check_for_updates)
 
-    # ── Freshness badge ──
+    # --- Freshness badge ---
 
     def _check_for_updates(self) -> None:
         """Background thread: ask the current provider if updates exist."""
@@ -854,13 +865,10 @@ class OnlineImportWizard(tk.Toplevel):
             try:
                 has_updates = provider.check_for_updates()
             except Exception:
+                logger.debug("Provider update check failed", exc_info=True)
                 has_updates = False
             if has_updates and not self._cancelled:
-                try:
-                    if self.winfo_exists():
-                        self.after(0, self._show_update_badge)
-                except Exception:
-                    pass
+                self._safe_after(0, self._show_update_badge)
 
         threading.Thread(target=_check, daemon=True).start()
 
@@ -911,7 +919,7 @@ class OnlineImportWizard(tk.Toplevel):
                 if not self._fetch_done.is_set():
                     self._show_pane_status(m)
 
-            self.after(0, _update)
+            self._safe_after(0, _update)
 
         def _fetch() -> None:
             try:
@@ -927,7 +935,7 @@ class OnlineImportWizard(tk.Toplevel):
                 if catalog:
                     provider._save_catalog_cache(catalog)
                 self._fetch_done.set()
-                self.after(0, lambda: self._on_catalog_loaded(catalog))
+                self._safe_after(0, lambda: self._on_catalog_loaded(catalog))
             except Exception as ex:
                 if self._fetch_done.is_set() or self._cancelled:
                     return
@@ -937,7 +945,7 @@ class OnlineImportWizard(tk.Toplevel):
                     ex,
                     "Check your internet connection.",
                 )
-                self.after(0, lambda m=msg: self._on_catalog_error(m))
+                self._safe_after(0, lambda m=msg: self._on_catalog_error(m))
 
         threading.Thread(target=_fetch, daemon=True).start()
 
@@ -1198,7 +1206,7 @@ class OnlineImportWizard(tk.Toplevel):
             var.set(False)
         self._browse_status.set(f"{len(self._catalog)} profiles available")
 
-    # ── Step 3: Confirm & Import ──
+    # --- Step 3: Confirm & Import ---
 
     def _detect_slicer_filament_dirs(self) -> list[tuple[str, str]]:
         targets = []
@@ -1262,7 +1270,7 @@ class OnlineImportWizard(tk.Toplevel):
 
         tk.Frame(summary_frame, bg=theme.bg3, height=8).pack()
 
-        # ── Save-to checkboxes ──
+        # --- Save-to checkboxes ---
         target_frame = tk.Frame(frame, bg=theme.bg)
         target_frame.pack(fill="x", padx=20, pady=(4, 6))
 
@@ -1346,7 +1354,7 @@ class OnlineImportWizard(tk.Toplevel):
             pady=2,
         ).pack(side="left", padx=(6, 0))
 
-        # ── Profile list ──
+        # --- Profile list ---
         list_frame = tk.Frame(frame, bg=theme.bg)
         list_frame.pack(fill="both", expand=True, padx=20, pady=(4, 6))
 
@@ -1397,7 +1405,7 @@ class OnlineImportWizard(tk.Toplevel):
 
         self._bind_wizard_scroll(canvas)
 
-    # ── Navigation ──
+    # --- Navigation ---
 
     def _on_next(self) -> None:
         if getattr(self, "_importing", False):
@@ -1460,6 +1468,13 @@ class OnlineImportWizard(tk.Toplevel):
 
     def _on_cancel(self) -> None:
         self._cancelled = True
+        # Cancel any pending watchdog timer
+        if self._watchdog_id:
+            try:
+                self.after_cancel(self._watchdog_id)
+            except (tk.TclError, ValueError):
+                pass
+            self._watchdog_id = None
         # Remove filter traces to prevent leaks on reopen
         for var, tid in self._trace_ids:
             try:
@@ -1476,7 +1491,7 @@ class OnlineImportWizard(tk.Toplevel):
                 return p
         return None
 
-    # ── Import Execution ──
+    # --- Import Execution ---
 
     def _collect_target_dirs(self) -> list[str]:
         dirs = []
@@ -1535,7 +1550,7 @@ class OnlineImportWizard(tk.Toplevel):
                     if pb:
                         pb.configure(value=idx + 1)
 
-                self.after(0, _update_progress)
+                self._safe_after(0, _update_progress)
                 try:
                     data, fname = provider.download_profile(entry)
                     if data and fname:
@@ -1580,12 +1595,21 @@ class OnlineImportWizard(tk.Toplevel):
                     errors.append(f"{entry.name}: {ex}")
                     logger.warning("Download failed: %s", entry.name, exc_info=True)
 
-            self.after(
-                0,
-                lambda: self._on_download_complete(
-                    results, errors, list(saved_dirs), tmp_dirs
-                ),
-            )
+            try:
+                if self.winfo_exists():
+                    self.after(
+                        0,
+                        lambda: self._on_download_complete(
+                            results, errors, list(saved_dirs), tmp_dirs
+                        ),
+                    )
+                else:
+                    # Widget destroyed — clean up tmp_dirs directly
+                    for td in tmp_dirs:
+                        shutil.rmtree(td, ignore_errors=True)
+            except tk.TclError:
+                for td in tmp_dirs:
+                    shutil.rmtree(td, ignore_errors=True)
 
         threading.Thread(target=_download, daemon=True).start()
 

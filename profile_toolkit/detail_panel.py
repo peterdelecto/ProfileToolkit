@@ -35,11 +35,11 @@ from .utils import (
     get_recommendation,
     check_value_range,
     get_enum_human_label,
+    nil_to_zero,
 )
 from .widgets import (
     Tooltip as _Tooltip,
     InfoPopup as _InfoPopup,
-    ScrollableFrame,
     make_btn as _make_btn,
 )
 
@@ -104,7 +104,6 @@ class ProfileDetailPanel(tk.Frame):
         self._profile_undo_stacks = {}
         self._pre_edit_modified = None
         self._param_order = []
-        self._header_frame = None
         self._name_row = None
         self._content_canvas = None
         self._content_frame = None
@@ -112,8 +111,6 @@ class ProfileDetailPanel(tk.Frame):
         self._canvas_window = None
         self._current_material = "General"
         self._indicator_frames = {}
-        self._scroll_bound = False
-        self._after_ids: list[str] = []
         self._show_placeholder()
 
         self.bind("<Destroy>", self._on_destroy_detail_panel, add="+")
@@ -122,15 +119,9 @@ class ProfileDetailPanel(tk.Frame):
         # dispatches to the correct panel (ComparePanel or DetailPanel).
 
     def _on_destroy_detail_panel(self, event=None) -> None:
-        """Clean up after() callbacks and traces on panel destruction."""
+        """Clean up traces on panel destruction."""
         if event and event.widget is not self:
             return
-        for after_id in self._after_ids:
-            try:
-                self.after_cancel(after_id)
-            except (tk.TclError, ValueError):
-                pass
-        self._after_ids.clear()
 
     def _show_placeholder(self, text: Optional[str] = None) -> None:
         for w in self.winfo_children():
@@ -871,16 +862,19 @@ class ProfileDetailPanel(tk.Frame):
         self._commit_edits()
         # Save current undo stack before switching profiles
         if self.current_profile:
-            self._profile_undo_stacks[id(self.current_profile)] = self._undo_stack
+            self._profile_undo_stacks[
+                (id(self.current_profile), self.current_profile.name)
+            ] = self._undo_stack
         self.current_profile = profile
         self._edit_vars = {}
-        self._undo_stack = self._profile_undo_stacks.get(id(profile), [])
+        self._undo_stack = self._profile_undo_stacks.get(
+            (id(profile), profile.name), []
+        )
         self._pre_edit_modified = None
         self._param_order = []
         self._indicator_frames = {}
         self._tab_buttons = []
         self._current_tab = None
-        self._scroll_bound = False
         for w in self.winfo_children():
             w.destroy()
 
@@ -903,7 +897,7 @@ class ProfileDetailPanel(tk.Frame):
 
         self._current_material = detect_material(self._display_data)
 
-        self._header_frame = self._build_header(profile)
+        self._build_header(profile)
 
         # Informational note when inherited base profile could not be found
         if profile.inherits and not profile.resolved_data:
@@ -1086,12 +1080,6 @@ class ProfileDetailPanel(tk.Frame):
                 return str(value[0])
         return str(value) if not isinstance(value, list) else None
 
-    # Badge colors — use theme tokens (theme.badge_prusa/bambu/orca) at render time
-    _SLICER_BADGE_LABELS_MAP = {
-        "Prusa": "badge_prusa",
-        "Bambu": "badge_bambu",
-        "Orca": "badge_orca",
-    }
     _SLICER_BADGE_LABELS = {
         "Prusa": "P",
         "Bambu": "B",
@@ -1460,6 +1448,7 @@ class ProfileDetailPanel(tk.Frame):
                 self._update_indicator(key, new_val)
 
         combobox.bind("<<ComboboxSelected>>", _on_enum_change)
+        bind_scroll(combobox, self._content_canvas)
         self._edit_vars[key] = (value_var, original_value, "combo")
         val_fg = theme.fg2 if is_inherited else theme.fg
         self._param_order.append((key, row, val_fg))
@@ -1735,18 +1724,11 @@ class ProfileDetailPanel(tk.Frame):
         return text
 
     @staticmethod
-    def _nil_to_zero(v: Any) -> Any:
-        """Convert slicer 'nil' values to 0 for display."""
-        if isinstance(v, str) and v.strip().lower() == "nil":
-            return "0"
-        return v
-
-    @staticmethod
     def _format_value(value: Any, key: Optional[str] = None) -> str:
         """Format a value for display."""
         if isinstance(value, list):
             # Replace nil entries in lists
-            value = [ProfileDetailPanel._nil_to_zero(v) for v in value]
+            value = [nil_to_zero(v) for v in value]
             # BambuStudio stores per-extruder values as arrays where all elements
             # are identical (e.g., [210, 210, 210] for nozzle temp across 3 extruders).
             # Collapse to a single display value when all entries match.
@@ -1760,7 +1742,7 @@ class ProfileDetailPanel(tk.Frame):
             return "Yes" if value else "No"
         elif value is None:
             return "N/A"
-        value = ProfileDetailPanel._nil_to_zero(value)
+        value = nil_to_zero(value)
         value_str = str(value)
         if key and key in ENUM_VALUES:
             return get_enum_human_label(key, value_str)

@@ -8,7 +8,6 @@ import tkinter as tk
 
 from .constants import (
     RECOMMENDATIONS,
-    ENUM_VALUES,
     _ENUM_JSON_TO_LABEL,
     _KNOWN_VENDORS,
     _PLATFORM,
@@ -17,6 +16,13 @@ from .constants import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def nil_to_zero(value):
+    """Convert None, empty string, or 'nil' to 0 for numeric comparison."""
+    if value is None or value == "" or value == "nil":
+        return 0
+    return value
 
 
 def user_error(what: str, exc: Exception | str, tip: str = "") -> str:
@@ -312,8 +318,6 @@ def parse_printer_nozzle(raw: str) -> tuple[str, str]:
 
     Handles BBL, Prusa, and generic formats. Returns (printer, nozzle) tuple.
     """
-    import re
-
     s = raw.strip()
     # Strip leading "@BBL ", "BBL ", "@"
     for prefix in ("@BBL ", "BBL ", "@"):

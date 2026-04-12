@@ -59,6 +59,14 @@ class BatchRenameDialog(tk.Toplevel):
 
         self._build()
 
+    def destroy(self) -> None:
+        for var, trace_id in getattr(self, "_trace_ids", []):
+            try:
+                var.trace_remove("write", trace_id)
+            except (tk.TclError, ValueError):
+                pass
+        super().destroy()
+
     def _profile_field(self, profile: Profile, field: str) -> str:
         if field == "name":
             return profile.name
@@ -187,9 +195,25 @@ class BatchRenameDialog(tk.Toplevel):
         )
 
         self._find_entry = find_entry
-        self._simple_mode_var.trace_add("write", self._update_simple_fields)
-        self._find_var.trace_add("write", lambda *a: self._update_preview())
-        self._replace_var.trace_add("write", lambda *a: self._update_preview())
+        self._trace_ids = getattr(self, "_trace_ids", [])
+        self._trace_ids.append(
+            (
+                self._simple_mode_var,
+                self._simple_mode_var.trace_add("write", self._update_simple_fields),
+            )
+        )
+        self._trace_ids.append(
+            (
+                self._find_var,
+                self._find_var.trace_add("write", lambda *a: self._update_preview()),
+            )
+        )
+        self._trace_ids.append(
+            (
+                self._replace_var,
+                self._replace_var.trace_add("write", lambda *a: self._update_preview()),
+            )
+        )
 
         def _simple_rename(p: Profile) -> str:
             m = self._simple_mode_var.get()
@@ -225,7 +249,12 @@ class BatchRenameDialog(tk.Toplevel):
         self._build_pattern_tokens()
         self._build_pattern_separators()
         self._build_pattern_entry()
-        self._pattern_var.trace_add("write", lambda *a: self._update_preview())
+        self._trace_ids.append(
+            (
+                self._pattern_var,
+                self._pattern_var.trace_add("write", lambda *a: self._update_preview()),
+            )
+        )
 
         def _pattern_rename(p: Profile) -> str:
             tmpl = self._pattern_var.get()

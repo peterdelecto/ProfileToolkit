@@ -84,12 +84,12 @@ class SimplyPrintDBProvider(OnlineProvider):
             # Structure: profiles/bambustudio/MFR/filament/name.json
             parts = path[len(prefix) :].split("/")
             slicer = parts[0] if parts else "BambuStudio"
-            mfr = parts[1] if len(parts) > 1 else ""
+            manufacturer = parts[1] if len(parts) > 1 else ""
             fname = path.rsplit("/", 1)[-1].replace(".json", "")
             dl_url = f"https://raw.githubusercontent.com/{repo}/main/{path}"
             entry = _make_entry(fname, dl_url, slicer, self.id, "SimplyPrint DB")
-            if not entry.brand and mfr:
-                entry.brand = mfr
+            if not entry.brand and manufacturer:
+                entry.brand = manufacturer
             entries.append(entry)
         self._report(f"Found {len(entries)} SimplyPrint profiles")
         return entries
@@ -141,12 +141,12 @@ class OrcaSlicerLibraryProvider(OnlineProvider):
             fname = path.rsplit("/", 1)[-1].replace(".json", "")
             # Extract manufacturer from path: resources/profiles/MFR/filament/...
             parts = path[len(prefix) :].split("/")
-            mfr = parts[0] if parts else ""
+            manufacturer = parts[0] if parts else ""
             url = f"https://raw.githubusercontent.com/{repo}/main/{path}"
             entry = _make_entry(fname, url, "OrcaSlicer", self.id, "OrcaSlicer preset")
             # Use manufacturer dir as brand if guess_brand didn't find one
-            if not entry.brand and mfr:
-                entry.brand = mfr
+            if not entry.brand and manufacturer:
+                entry.brand = manufacturer
             entries.append(entry)
         self._report(f"Found {len(entries)} OrcaSlicer profiles")
         return entries

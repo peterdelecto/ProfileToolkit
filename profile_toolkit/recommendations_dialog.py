@@ -83,14 +83,11 @@ class RecommendationsDialog:
             font=(UI_FONT, 13),
         ).pack(side="left")
 
-        # Compute stats (used by _render_rec_row below)
-        stats = self._compute_stats(display_data, material)
-
         # (Outlier comparison removed — too noisy for end users)
 
         # Scrollable parameter list
-        sf = ScrollableFrame(dlg, bg=theme.bg)
-        sf.pack(fill="both", expand=True, padx=16, pady=(0, 8))
+        scroll_frame = ScrollableFrame(dlg, bg=theme.bg)
+        scroll_frame.pack(fill="both", expand=True, padx=16, pady=(0, 8))
 
         out_of_range = []
         layout = FILAMENT_LAYOUT
@@ -114,7 +111,7 @@ class RecommendationsDialog:
 
         if out_of_range:
             # Select All / Deselect All
-            sel_frame = tk.Frame(sf.body, bg=theme.bg)
+            sel_frame = tk.Frame(scroll_frame.body, bg=theme.bg)
             sel_frame.pack(fill="x", pady=(4, 6))
             self._select_all_var = tk.BooleanVar(value=True)
 
@@ -138,7 +135,7 @@ class RecommendationsDialog:
             cb.pack(side="left")
 
             # Column headers
-            hdr_row = tk.Frame(sf.body, bg=theme.bg3)
+            hdr_row = tk.Frame(scroll_frame.body, bg=theme.bg3)
             hdr_row.pack(fill="x", pady=(0, 4))
             hdr_row.columnconfigure(0, minsize=30)
             hdr_row.columnconfigure(1, minsize=180)
@@ -175,18 +172,25 @@ class RecommendationsDialog:
                 inherited,
             ) in out_of_range:
                 self._render_rec_row(
-                    sf.body, json_key, ui_label, val, status, rec, tab_name, inherited
+                    scroll_frame.body,
+                    json_key,
+                    ui_label,
+                    val,
+                    status,
+                    rec,
+                    tab_name,
+                    inherited,
                 )
         else:
             tk.Label(
-                sf.body,
+                scroll_frame.body,
                 text="All parameters are within recommended ranges.",
                 bg=theme.bg,
                 fg=theme.accent,
                 font=(UI_FONT, 14, "bold"),
             ).pack(pady=30)
 
-        sf.bind_scroll_recursive()
+        scroll_frame.bind_scroll_recursive()
 
         # Bottom buttons
         btn_frame = tk.Frame(dlg, bg=theme.bg)
@@ -426,45 +430,3 @@ class RecommendationsDialog:
                 elif status == "high":
                     high += 1
         return {"total": total, "ok": ok, "low": low, "high": high}
-
-    def _compute_loaded_profile_stats(
-        self, data: dict, material: str
-    ) -> Optional[dict]:
-        if len(self.all_profiles) < 2:
-            return None
-        outliers = []
-        for key, val in data.items():
-            if isinstance(val, list):
-                val = val[0] if val else None
-            try:
-                num = float(val)
-            except (ValueError, TypeError):
-                continue
-            # Gather values from all loaded profiles
-            values = []
-            for p in self.all_profiles:
-                pdata = p.resolved_data if p.resolved_data else p.data
-                pval = pdata.get(key)
-                if isinstance(pval, list):
-                    pval = pval[0] if pval else None
-                try:
-                    values.append(float(pval))
-                except (ValueError, TypeError):
-                    continue
-            if len(values) < 3:
-                continue
-            avg = sum(values) / len(values)
-            std = (sum((v - avg) ** 2 for v in values) / len(values)) ** 0.5
-            if std > 0 and abs(num - avg) > 2 * std:
-                # Find UI label
-                ui_label = key.replace("_", " ").capitalize()
-                for layout in (FILAMENT_LAYOUT,):
-                    for sections in layout.values():
-                        for params in sections.values():
-                            for entry in params:
-                                k, l = entry[0], entry[1]
-                                if k == key:
-                                    ui_label = l
-                                    break
-                outliers.append(ui_label)
-        return {"outliers": outliers} if outliers else None

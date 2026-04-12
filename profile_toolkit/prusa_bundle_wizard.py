@@ -132,13 +132,6 @@ class PrusaBundleWizard(tk.Toplevel):
         for w in self._body.winfo_children():
             w.destroy()
 
-    def _go_back(self) -> None:
-        """Navigate back to the filament selection step."""
-        self._build_filament_list()
-        self._build_nav_buttons(
-            back=False, next_label="Import", next_cmd=self._on_import
-        )
-
     def _build_nav_buttons(
         self,
         back: bool = False,
@@ -220,7 +213,7 @@ class PrusaBundleWizard(tk.Toplevel):
 
         ctrl = tk.Frame(self._body, bg=theme.bg)
         ctrl.pack(fill="x", pady=(0, 4))
-        sa = make_btn(
+        select_all_btn = make_btn(
             ctrl,
             "Select All",
             self._select_all,
@@ -230,8 +223,8 @@ class PrusaBundleWizard(tk.Toplevel):
             padx=10,
             pady=4,
         )
-        sa.pack(side="left", padx=(0, 4))
-        sn = make_btn(
+        select_all_btn.pack(side="left", padx=(0, 4))
+        deselect_btn = make_btn(
             ctrl,
             "Deselect All",
             self._select_none,
@@ -241,7 +234,7 @@ class PrusaBundleWizard(tk.Toplevel):
             padx=10,
             pady=4,
         )
-        sn.pack(side="left")
+        deselect_btn.pack(side="left")
 
         self._search_var = tk.StringVar()
         self._search_var.trace_add("write", lambda *_: self._filter_tree())

@@ -53,14 +53,6 @@ class Tooltip:
         delay: int = TOOLTIP_DELAY_MS,
         theme: "Theme | None" = None,
     ) -> None:
-        """Initialize tooltip with widget and text.
-
-        Args:
-            widget: Target widget for the tooltip.
-            text: Text content of the tooltip.
-            delay: Milliseconds to wait before showing tooltip.
-            theme: Optional Theme instance for color tokens.
-        """
         self.widget: tk.Widget = widget
         self.text: str = text
         self.delay: int = delay
@@ -151,14 +143,6 @@ class InfoPopup:
         material: str = "General",
         theme: "Theme | None" = None,
     ) -> None:
-        """Initialize info popup with widget and parameter key.
-
-        Args:
-            widget: The widget that triggers the popup on click.
-            key: Parameter key to look up in RECOMMENDATIONS.
-            material: Material name for material-specific ranges.
-            theme: Optional Theme instance for color tokens.
-        """
         self.widget: tk.Widget = widget
         self.key: str = key
         self.material: str = material

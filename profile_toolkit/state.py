@@ -239,7 +239,9 @@ def reapply_unlock_state(profile: Profile, state: dict) -> None:
                     profile.data["printer_settings_id"] = ""
                 return
     except (TypeError, KeyError, AttributeError):
-        pass
+        logger.debug(
+            "Could not reapply unlock state for '%s'", profile.name, exc_info=True
+        )
 
 
 def cleanup_stale_state(max_age_days: int = 90) -> int:

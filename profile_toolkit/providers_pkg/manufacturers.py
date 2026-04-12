@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import urllib.error
 from typing import Callable, Optional
 
@@ -122,8 +121,8 @@ class ColorFabbProvider(OnlineProvider):
             if len(parts) < 3:
                 continue
             slicer = parts[0]  # BambuStudio, OrcaSlicer, etc.
-            ptype = parts[1]  # filament, process
-            if ptype != "filament":
+            profile_type = parts[1]  # filament, process
+            if profile_type != "filament":
                 continue
             fname = parts[-1].replace(".json", "")
             printer, nozzle = "", ""
@@ -131,14 +130,14 @@ class ColorFabbProvider(OnlineProvider):
                 printer, nozzle = parse_printer_nozzle(fname.split(" @", 1)[1])
             entry = OnlineProfileEntry(
                 name=fname,
-                material=guess_material(fname) if ptype == "filament" else "",
+                material=guess_material(fname) if profile_type == "filament" else "",
                 brand="colorFabb",
                 printer=printer,
                 slicer=slicer,
                 url=f"https://raw.githubusercontent.com/{repo}/main/{path}",
                 description=f"colorFabb official — {fname}",
                 provider_id=self.id,
-                metadata={"profile_type": ptype},
+                metadata={"profile_type": profile_type},
             )
             entry.nozzle = nozzle
             entries.append(entry)
@@ -175,8 +174,9 @@ class PrusaResearchProvider(OnlineProvider):
         self._cached_sections: dict | None = None
 
     def clear_cache(self) -> None:
-        self._cached_raw = None
-        self._cached_sections = None
+        with self._bundle_lock:
+            self._cached_raw = None
+            self._cached_sections = None
 
     def _fetch_bundle_raw(
         self, cancel_check: Callable[[], bool] | None = None
@@ -377,9 +377,9 @@ class PrusaResearchProvider(OnlineProvider):
             lines.append(f"{k} = {v}")
         content = "\n".join(lines).encode("utf-8")
 
-        from pathlib import Path as _P
+        from pathlib import Path
 
-        safe = _P(
+        safe = Path(
             name.replace(" ", "_").replace("/", "-").replace("\\", "-")[:200]
         ).name
         return content, f"{safe}.ini"

@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import json
-import hashlib
 import logging
 import os
 import re
 import xml.etree.ElementTree as ET
-
-_RE_AT_SUFFIX = re.compile(r"\s*@.*$")
 import zipfile
 import zlib
+
+_RE_AT_SUFFIX = re.compile(r"\s*@.*$")
 from copy import deepcopy
 from datetime import datetime
 from typing import Optional
@@ -286,8 +285,14 @@ class PresetIndex:
             return
 
         # Merge from deepest ancestor → nearest parent → profile itself
+        # Cache fuzzy lookups during the merge phase to avoid redundant searches
+        _lookup_cache: dict[str, Optional[dict]] = {}
         for ancestor_name in reversed(chain):
-            ancestor = self._fuzzy_lookup(ancestor_name) or {}
+            if ancestor_name in _lookup_cache:
+                ancestor = _lookup_cache[ancestor_name] or {}
+            else:
+                ancestor = self._fuzzy_lookup(ancestor_name) or {}
+                _lookup_cache[ancestor_name] = ancestor if ancestor else None
             for k, v in ancestor.items():
                 if k not in _IDENTITY_KEYS:
                     merged[k] = v
@@ -680,6 +685,23 @@ class Profile:
             return True
         return False
 
+    def _make_snapshot(self) -> dict:
+        """Create a pre-modification snapshot for undo."""
+        return {
+            "_full_data": deepcopy(self.data),
+            "_modified": self.modified,
+            "_resolved_data": (
+                deepcopy(self.resolved_data) if self.resolved_data else None
+            ),
+            "_inherited_keys": (
+                set(self.inherited_keys) if self.inherited_keys else None
+            ),
+            "_inheritance_chain": (
+                list(self.inheritance_chain) if self.inheritance_chain else None
+            ),
+            "inherits": self.data.get("inherits", ""),
+        }
+
     def make_universal(self) -> None:
         """Remove printer-specific restrictions from a profile.
 
@@ -687,25 +709,7 @@ class Profile:
         when on flattened user profiles — the profile appears in the Custom list
         for every printer. This matches known-working user profiles.
         """
-        # Save full pre-flatten state including inheritance
-        snapshot = {
-            "_full_data": deepcopy(self.data),
-            "_modified": self.modified,
-            "_resolved_data": (
-                deepcopy(self.resolved_data) if self.resolved_data else None
-            ),
-            "_inherited_keys": (
-                set(self.inherited_keys)
-                if hasattr(self, "inherited_keys") and self.inherited_keys
-                else None
-            ),
-            "_inheritance_chain": (
-                list(self.inheritance_chain)
-                if hasattr(self, "inheritance_chain") and self.inheritance_chain
-                else None
-            ),
-            "_inherits": self.data.get("inherits"),
-        }
+        snapshot = self._make_snapshot()
         if not self._flatten_into_data() and self.data.get("inherits"):
             logger.warning(
                 "make_universal: parent not resolved for '%s'; "
@@ -740,25 +744,7 @@ class Profile:
         for p in printers:
             if any(c in p for c in "\t\n\r\x00"):
                 logger.warning("Retarget: suspicious printer name: %r", p)
-        # Save full pre-flatten state including inheritance
-        snapshot = {
-            "_full_data": deepcopy(self.data),
-            "_modified": self.modified,
-            "_resolved_data": (
-                deepcopy(self.resolved_data) if self.resolved_data else None
-            ),
-            "_inherited_keys": (
-                set(self.inherited_keys)
-                if hasattr(self, "inherited_keys") and self.inherited_keys
-                else None
-            ),
-            "_inheritance_chain": (
-                list(self.inheritance_chain)
-                if hasattr(self, "inheritance_chain") and self.inheritance_chain
-                else None
-            ),
-            "_inherits": self.data.get("inherits"),
-        }
+        snapshot = self._make_snapshot()
         if not self._flatten_into_data() and self.data.get("inherits"):
             logger.warning(
                 "retarget: parent not resolved for '%s'; "
@@ -995,9 +981,7 @@ class Profile:
                 break
 
         # #12: Strip existing slicer suffix before appending new one
-        import re as _re
-
-        clean_name = _re.sub(
+        clean_name = re.sub(
             r"\s*\((?:BS|PS|OS|Bambu|Prusa|Orca)\)\s*$",
             "",
             flat.get("name", ""),
@@ -1416,9 +1400,6 @@ class ProfileEngine:
                         data["name"] = f"Extracted {ft} profile"
                     profiles.append(Profile(data, source_path, "3mf"))
 
-            elif tag_lower == "plate":
-                pass
-
             elif tag_lower in ("settings", "object_settings"):
                 data = ProfileEngine._extract_xml_profile(elem)
                 if data and ProfileEngine._is_profile_data(data):
@@ -1582,7 +1563,7 @@ class ProfileEngine:
             data["name"] = os.path.splitext(os.path.basename(path))[0]
         return [Profile(data, path, "ini", type_hint=type_hint, origin="PrusaSlicer")]
 
-    # ── Prusa Bundle (.ini with [vendor] + multiple [type:name] sections) ──
+    # --- Prusa Bundle (.ini with [vendor] + multiple [type:name] sections) ---
 
     @staticmethod
     def parse_prusa_bundle(path: str, only: str | None = None) -> dict:

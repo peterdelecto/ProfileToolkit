@@ -78,6 +78,14 @@ MAX_COLLISION_ATTEMPTS = 100
 # Maximum undo stack entries (compare panel copy operations)
 MAX_UNDO_STACK_SIZE = 200
 
+# Background thread timeout for preset scanning (seconds)
+PRESET_SCAN_TIMEOUT_S = 120
+
+# Profile name truncation lengths
+NAME_TRUNCATE_SHORT = 25
+NAME_TRUNCATE_MEDIUM = 80
+NAME_TRUNCATE_LONG = 120
+
 
 # --- BambuStudio UI Layout Definitions ---
 # Each entry: (json_key, ui_label)
@@ -401,8 +409,7 @@ for _tab_sections in FILAMENT_LAYOUT.values():
     for _params in _tab_sections.values():
         for _entry in _params:
             _ALL_FILAMENT_KEYS.add(_entry[0])
-for _name in ("_tab_sections", "_params", "_entry"):
-    vars().pop(_name, None)
+del _tab_sections, _params, _entry
 
 # Identity/meta keys: profile bookkeeping fields shown in the header,
 # not as editable parameters. Excluded from tab layout and diff views.
@@ -2189,8 +2196,7 @@ for _plate in ("hot_plate_temp", "textured_plate_temp"):
             "sources": RECOMMENDATIONS[_plate].get("sources", []),
             "ranges": RECOMMENDATIONS[_plate]["ranges"],
         }
-for _name in ("_plate", "_il_key"):
-    vars().pop(_name, None)
+del _plate, _il_key
 
 
 # --- Enum Value Mappings ---
