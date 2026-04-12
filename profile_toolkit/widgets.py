@@ -1000,10 +1000,10 @@ class UnlockDialog(tk.Toplevel):
         scrollbar.pack(side="right", fill="y")
 
         self.pvars: Dict[str, tk.BooleanVar] = {}
-        for brand, models in _KNOWN_PRINTERS.items():
+        for manufacturer, models in _KNOWN_PRINTERS.items():
             tk.Label(
                 self.check_frame,
-                text=brand,
+                text=manufacturer,
                 font=(UI_FONT, 12, "bold"),
                 bg=theme.bg3,
                 fg=theme.fg2,

@@ -73,6 +73,20 @@ class OnlineProvider:
     description: str = ""
     website: str = ""  # URL to source website/repo for user reference
 
+    @property
+    def source_hint(self) -> str:
+        """Short domain hint for UI display, e.g. 'github.com/prusa3d'."""
+        if not self.website:
+            return ""
+        from urllib.parse import urlparse
+
+        parsed = urlparse(self.website)
+        host = parsed.netloc or ""
+        path_parts = [p for p in parsed.path.split("/") if p]
+        if host.endswith("github.com") and path_parts:
+            return f"github.com/{path_parts[0]}"
+        return host
+
     _ssl_ctx: Optional[ssl.SSLContext] = None  # lazily created SSL context
     _ssl_lock = __import__("threading").Lock()
     _ssl_degraded_flag: bool = (

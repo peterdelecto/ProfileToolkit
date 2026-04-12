@@ -9,7 +9,7 @@ Built with Python + tkinter. No external dependencies required.
 
 ## Features
 
-**Import from anywhere** -- Load JSON, INI, and .3MF files. Pull system presets from installed slicers. Browse and download from online profile databases.
+**Import from anywhere** -- Load JSON, INI, and .3MF files. Pull system presets from installed slicers. Browse and download from online profile databases (Polymaker, colorFabb, Prusa, OrcaSlicer, BambuStudio, and community sources).
 
 **Familiar layout** -- Parameters displayed using BambuStudio's tab and section structure. Filament and process profiles each have their own layout.
 

@@ -42,7 +42,7 @@ class BatchRenameDialog(tk.Toplevel):
         # Snapshot all token values NOW so they survive name changes
         self._available_tokens = [
             ("name", "Profile name"),
-            ("brand", "Brand / manufacturer"),
+            ("brand", "Filament brand"),
             ("material", "Material type"),
             ("printer", "Printer model"),
             ("nozzle", "Nozzle size"),

@@ -30,7 +30,7 @@ from .constants import (
     _FILAMENT_SIGNAL_KEYS,
     _PROCESS_SIGNAL_KEYS,
     _PROFILE_SIGNAL_KEYS,
-    _KNOWN_VENDORS,
+    _KNOWN_FILAMENT_BRANDS,
     _FILAMENT_TYPES,
     _NOZZLE_SIZES,
     _ALL_BBL_PRINTERS,
@@ -563,8 +563,8 @@ class Profile:
         return "Universal"
 
     @property
-    def manufacturer_group(self) -> str:
-        """Return manufacturer/vendor grouping."""
+    def brand_group(self) -> str:
+        """Return filament brand/vendor grouping."""
         vendor = self.data.get("filament_vendor", "")
         if isinstance(vendor, list):
             vendor = vendor[0] if vendor else ""
@@ -574,13 +574,13 @@ class Profile:
         name = self.data.get("name", "")
         base = name.split("@")[0].strip() if "@" in name else name
         base_lower = base.lower()
-        for v in sorted(_KNOWN_VENDORS, key=len, reverse=True):
+        for v in sorted(_KNOWN_FILAMENT_BRANDS, key=len, reverse=True):
             if base_lower.startswith(v.lower()):
                 return v
 
         inherits = self.data.get("inherits", "")
         if inherits:
-            for v in sorted(_KNOWN_VENDORS, key=len, reverse=True):
+            for v in sorted(_KNOWN_FILAMENT_BRANDS, key=len, reverse=True):
                 if inherits.lower().startswith(v.lower()):
                     return v
 
@@ -649,8 +649,8 @@ class Profile:
         """Return the grouping key for a given group_by mode."""
         if group_by == "printer":
             return self.printer_group
-        elif group_by == "manufacturer":
-            return self.manufacturer_group
+        elif group_by == "brand":
+            return self.brand_group
         elif group_by == "material":
             return self.material_group
         elif group_by == "nozzle":

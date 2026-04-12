@@ -196,7 +196,7 @@ class ProfileListPanel(tk.Frame):
         filter_options = {
             "All columns": "none",
             "Printer": "printer",
-            "Manufacturer": "manufacturer",
+            "Brand": "brand",
             "Material": "material",
             "Status": "status",
         }
@@ -269,7 +269,7 @@ class ProfileListPanel(tk.Frame):
 
         self.tree = ttk.Treeview(
             tree_frame,
-            columns=("name", "manufacturer", "material", "printer", "status"),
+            columns=("name", "brand", "material", "printer", "status"),
             show="tree headings",
             selectmode="extended",
         )
@@ -284,7 +284,7 @@ class ProfileListPanel(tk.Frame):
 
         col_defs = [
             ("name", "Profile Name", 260, 140, True),
-            ("manufacturer", "Manufacturer", 110, 70, True),
+            ("brand", "Brand", 110, 70, True),
             ("material", "Material", 90, 60, True),
             ("printer", "Printer", 130, 80, True),
             ("status", "Status", 90, 60, False),
@@ -295,7 +295,7 @@ class ProfileListPanel(tk.Frame):
         self._col_labels_short = {
             "slicer": "",
             "name": "Name",
-            "manufacturer": "Brand",
+            "brand": "Brand",
             "material": "Type",
             "printer": "Printer",
             "status": "Status",
@@ -397,8 +397,8 @@ class ProfileListPanel(tk.Frame):
             return (profile.printer_group or "").lower()
         elif col == "material":
             return (profile.material_group or "").lower()
-        elif col == "manufacturer":
-            return (profile.manufacturer_group or "").lower()
+        elif col == "brand":
+            return (profile.brand_group or "").lower()
         elif col == "status":
             text, _ = self._profile_status(profile)
             return text.lower()
@@ -489,7 +489,7 @@ class ProfileListPanel(tk.Frame):
             image=badge_img or "",
             values=(
                 profile.name,
-                profile.manufacturer_group or "\u2014",
+                profile.brand_group or "\u2014",
                 profile.material_group or "\u2014",
                 profile.printer_group or "\u2014",
                 status,
@@ -523,12 +523,12 @@ class ProfileListPanel(tk.Frame):
                     searchable = (
                         f"{profile.name} {profile.origin} {profile.source_label} "
                         f"{status_text} {profile.material_group} "
-                        f"{profile.printer_group} {profile.manufacturer_group}"
+                        f"{profile.printer_group} {profile.brand_group}"
                     ).lower()
                 elif filter_col == "printer":
                     searchable = (profile.printer_group or "").lower()
-                elif filter_col == "manufacturer":
-                    searchable = (profile.manufacturer_group or "").lower()
+                elif filter_col == "brand":
+                    searchable = (profile.brand_group or "").lower()
                 elif filter_col == "material":
                     searchable = (profile.material_group or "").lower()
                 elif filter_col == "status":
@@ -772,7 +772,7 @@ class ProfileListPanel(tk.Frame):
         action_row1.pack(fill="x", padx=6, pady=(0, 2))
         _make_btn(
             action_row1,
-            "Clear All...",
+            "Clear List...",
             lambda: self.app._on_clear_list(),
             bg=theme.bg4,
             fg=theme.warning,
@@ -799,7 +799,7 @@ class ProfileListPanel(tk.Frame):
             font=(UI_FONT, 12),
             padx=8,
             pady=3,
-        ).pack(side="right", padx=(0, 8))
+        ).pack(side="right", padx=(0, 4))
         _make_btn(
             action_row1,
             "Batch Rename",

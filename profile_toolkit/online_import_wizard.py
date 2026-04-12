@@ -338,24 +338,26 @@ class OnlineImportWizard(tk.Toplevel):
 
         self._source_rows = (
             {}
-        )  # provider_id -> (row_frame, text_frame, name_label, desc_label)
+        )  # provider_id -> (row, text_frame, name_lbl, desc_lbl, name_row, hint_lbl)
 
         def _select_source(pid: str) -> None:
             self._source_var.set(pid)
             # Update visual selection on all rows
-            for rid, (rw, tf, nlbl, dlbl) in self._source_rows.items():
+            for rid, (rw, tf, nlbl, dlbl, nrow, hlbl) in self._source_rows.items():
                 if rid == pid:
-                    bg = theme.sel
-                    nlbl.configure(bg=bg, fg=theme.accent)
+                    row_bg = theme.sel
+                    nlbl.configure(bg=row_bg, fg=theme.accent)
                 else:
-                    bg = theme.bg3
-                    nlbl.configure(bg=bg, fg=theme.fg)
-                for w in (rw, tf, dlbl):
-                    w.configure(bg=bg)
+                    row_bg = theme.bg3
+                    nlbl.configure(bg=row_bg, fg=theme.fg)
+                for w in (rw, tf, dlbl, nrow):
+                    w.configure(bg=row_bg)
+                if hlbl:
+                    hlbl.configure(bg=row_bg)
                 # Update any link labels or other direct children of row
                 for child in rw.winfo_children():
                     try:
-                        child.configure(bg=bg)
+                        child.configure(bg=row_bg)
                     except tk.TclError:
                         pass
 
@@ -386,15 +388,32 @@ class OnlineImportWizard(tk.Toplevel):
 
                 text_frame = tk.Frame(row, bg=row_bg)
                 text_frame.pack(side="left", fill="x", expand=True, padx=12, pady=8)
+                name_row = tk.Frame(text_frame, bg=row_bg)
+                name_row.pack(anchor="w")
                 name_lbl = tk.Label(
-                    text_frame,
+                    name_row,
                     text=provider.name,
                     bg=row_bg,
                     fg=theme.accent if is_selected else theme.fg,
                     font=(UI_FONT, 12, "bold"),
                     anchor="w",
                 )
-                name_lbl.pack(anchor="w")
+                name_lbl.pack(side="left")
+
+                source_hint = getattr(provider, "source_hint", "")
+                if source_hint:
+                    hint_lbl = tk.Label(
+                        name_row,
+                        text=source_hint,
+                        bg=row_bg,
+                        fg=theme.fg3,
+                        font=(UI_FONT, 11, "italic"),
+                        anchor="w",
+                    )
+                    hint_lbl.pack(side="left", padx=(8, 0))
+                else:
+                    hint_lbl = None
+
                 desc_lbl = tk.Label(
                     text_frame,
                     text=provider.description,
@@ -422,21 +441,28 @@ class OnlineImportWizard(tk.Toplevel):
                         lambda e, url=provider.website: webbrowser.open(url),
                     )
 
-                self._source_rows[provider.id] = (row, text_frame, name_lbl, desc_lbl)
+                self._source_rows[provider.id] = (
+                    row,
+                    text_frame,
+                    name_lbl,
+                    desc_lbl,
+                    name_row,
+                    hint_lbl,
+                )
 
                 # Click anywhere on row to select
-                for widget in (row, text_frame, name_lbl, desc_lbl):
+                click_targets = [row, text_frame, name_lbl, desc_lbl, name_row]
+                if hint_lbl:
+                    click_targets.append(hint_lbl)
+                for widget in click_targets:
                     widget.bind(
                         "<Button-1>", lambda e, pid=provider.id: _select_source(pid)
                     )
 
         self._bind_wizard_scroll(canvas)
 
-        # Store select function for keyboard nav and pre-select last provider
+        # Store select function for keyboard nav (no pre-selection)
         self._select_source_fn = _select_source
-        last_pid = self._prefs.get("last_provider", "")
-        if last_pid and last_pid in self._source_rows:
-            _select_source(last_pid)
 
     def _nav_source(self, delta: int) -> None:
         """Move source selection up/down by delta."""
@@ -1417,7 +1443,6 @@ class OnlineImportWizard(tk.Toplevel):
                 )
                 return
             self._selected_provider = self._get_provider(pid)
-            self._prefs["last_provider"] = pid
             self._show_step(1)
 
         elif step == 1:

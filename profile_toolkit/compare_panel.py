@@ -189,8 +189,10 @@ class ComparePanel(tk.Frame):
             if len(profile_b.name or "") > 15
             else (profile_b.name or "B")
         )
-        self._copy_all_ba_btn.configure(text=f"Copy {b_short} → {a_short}")
-        self._copy_all_ab_btn.configure(text=f"Copy {a_short} → {b_short}")
+        if hasattr(self, "_copy_all_ba_btn"):
+            self._copy_all_ba_btn.configure(text=f"Copy {b_short} → {a_short}")
+        if hasattr(self, "_copy_all_ab_btn"):
+            self._copy_all_ab_btn.configure(text=f"Copy {a_short} → {b_short}")
         # Cancel any pending debounced renders from previous session
         self._cancel_debounce()
         # Restore cached undo state for this pair, or start fresh

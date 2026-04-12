@@ -9,7 +9,6 @@ import tkinter as tk
 from .constants import (
     RECOMMENDATIONS,
     _ENUM_JSON_TO_LABEL,
-    _KNOWN_VENDORS,
     _PLATFORM,
     _WIN_SCROLL_DELTA_DIVISOR,
     COLOR_LIGHTEN_AMOUNT,

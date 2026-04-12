@@ -2461,7 +2461,7 @@ _ALL_BBL_PRINTERS = [
     for nz in ["0.2", "0.4", "0.6", "0.8"]
 ]
 
-_KNOWN_VENDORS = [
+_KNOWN_FILAMENT_BRANDS = [
     "Bambu",
     "Bambu Lab",
     "BBL",

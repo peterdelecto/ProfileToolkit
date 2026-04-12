@@ -371,6 +371,7 @@ class App(tk.Tk):
 
         _filament_icon = self._icon("filament")
 
+        _convert_icon = self._icon("convert")
         _compare_icon = self._icon("compare")
 
         self._filament_tab = make_btn(
@@ -396,6 +397,8 @@ class App(tk.Tk):
             font=(UI_FONT, 13),
             padx=14,
             pady=6,
+            image=_convert_icon,
+            compound="left",
         )
         self._convert_tab.pack(side="left", padx=(0, 10))
 
@@ -1618,7 +1621,7 @@ class App(tk.Tk):
             return
         count = len(panel.profiles)
         if not messagebox.askyesno(
-            "Clear All",
+            "Clear List",
             f"Remove all {count} {'profile' if count == 1 else 'profiles'} from the list?",
             parent=self,
         ):

@@ -34,7 +34,7 @@ class CommunityPresetsProvider(OnlineProvider):
         self._status_fn = status_fn
         entries = []
         repo = "DRIgnazGortngschirl/bambulab-studio-orca-slicer-presets"
-        for profile_type in ("filament", "machine", "process"):
+        for profile_type in ("filament",):
             self._report(f"Fetching {profile_type} profiles...")
             try:
                 nodes = self._fetch_git_tree(repo, profile_type)
@@ -100,6 +100,9 @@ class SantanachiaProvider(OnlineProvider):
             logger.error("Failed to fetch catalog from %s: %s", self.name, e)
             return []
 
+        # Directories that indicate non-filament profiles
+        _NON_FILAMENT_DIRS = {"process", "machine", "printer", "print"}
+
         entries = []
         for node in data["tree"]:
             if node.get("type") != "blob":
@@ -110,6 +113,9 @@ class SantanachiaProvider(OnlineProvider):
             if any(p in _SKIP_DIRS for p in parts):
                 continue
             if not (path.endswith(".json") or path.endswith(".bbsflmt")):
+                continue
+            # Skip process/machine/printer profiles — only want filament
+            if any(p.lower() in _NON_FILAMENT_DIRS for p in parts[:-1]):
                 continue
 
             fname = parts[-1]
@@ -183,11 +189,9 @@ class DgaucheFilamentLibProvider(OnlineProvider):
             # Directory structure: Printer/file
             printer = parts[0] if len(parts) >= 2 else ""
 
-            profile_type = "filament"
-            if "Process" in fname:
-                profile_type = "process"
-            elif "Machine" in fname:
-                profile_type = "machine"
+            # Skip process/machine profiles — only want filament
+            if "Process" in fname or "Machine" in fname:
+                continue
 
             entries.append(
                 OnlineProfileEntry(
@@ -199,7 +203,7 @@ class DgaucheFilamentLibProvider(OnlineProvider):
                     url=f"https://raw.githubusercontent.com/{repo}/main/{path}",
                     description=f"dgauche — {printer} — {display}",
                     provider_id=self.id,
-                    metadata={"profile_type": profile_type},
+                    metadata={"profile_type": "filament"},
                 )
             )
         self._report(f"Found {len(entries)} dgauche profiles")

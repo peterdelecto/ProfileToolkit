@@ -20,7 +20,6 @@ from .constants import (
     _ENTRY_CHARS,
     _LABEL_COL_WIDTH,
     _VAL_COL_WIDTH,
-    NAME_TRUNCATE_SHORT,
     NAME_TRUNCATE_MEDIUM,
     NAME_TRUNCATE_LONG,
     UI_FONT,
@@ -211,15 +210,6 @@ class ConvertDetailPanel(tk.Frame):
         """Called by ProfileListPanel._on_select when in convert mode."""
         self._profile = profile
         self._filled.clear()
-
-        # Update convert button with profile name
-        name = profile.name or "Profile"
-        short_name = (
-            name[:NAME_TRUNCATE_SHORT] + "…"
-            if len(name) > NAME_TRUNCATE_SHORT
-            else name
-        )
-        self._btn_convert.configure(text=f"Convert \u201c{short_name}\u201d")
 
         # Update header
         self._lbl_name.configure(text=profile.name or "(unnamed)")
