@@ -131,14 +131,36 @@ class PrusaBundleWizard(tk.Toplevel):
         for w in self._body.winfo_children():
             w.destroy()
 
+    def _go_back(self) -> None:
+        """Navigate back to the filament selection step."""
+        # Hide any step that's currently showing, reveal the cached filament frame
+        for w in self._body.winfo_children():
+            w.pack_forget()
+        self._filament_frame.pack(fill="both", expand=True)
+        self._build_nav_buttons(next_label="Import", next_cmd=self._on_import)
+
     def _build_nav_buttons(
         self,
+        back: bool = False,
         next_label: str = "Next",
         next_cmd: Callable | None = None,
     ) -> None:
         for w in self._btn_frame.winfo_children():
             w.destroy()
         theme = self.theme
+
+        if back:
+            back_btn = make_btn(
+                self._btn_frame,
+                "Back",
+                self._go_back,
+                bg=theme.bg4,
+                fg=theme.btn_fg,
+                font=(UI_FONT, 12),
+                padx=14,
+                pady=6,
+            )
+            back_btn.pack(side="left")
 
         cancel_btn = make_btn(
             self._btn_frame,
@@ -182,7 +204,11 @@ class PrusaBundleWizard(tk.Toplevel):
         theme = self.theme
         self._groups = self._build_groups()
 
-        hdr = tk.Frame(self._body, bg=theme.bg)
+        # Persistent container — survives _go_back via pack_forget/pack
+        self._filament_frame = tk.Frame(self._body, bg=theme.bg)
+        self._filament_frame.pack(fill="both", expand=True)
+
+        hdr = tk.Frame(self._filament_frame, bg=theme.bg)
         hdr.pack(fill="x", pady=(0, 8))
         tk.Label(
             hdr,
@@ -196,7 +222,7 @@ class PrusaBundleWizard(tk.Toplevel):
         )
         self._count_lbl.pack(side="right")
 
-        ctrl = tk.Frame(self._body, bg=theme.bg)
+        ctrl = tk.Frame(self._filament_frame, bg=theme.bg)
         ctrl.pack(fill="x", pady=(0, 4))
         select_all_btn = make_btn(
             ctrl,
@@ -238,7 +264,7 @@ class PrusaBundleWizard(tk.Toplevel):
         ).pack(side="right")
 
         # Treeview with checkmark column
-        tree_frame = tk.Frame(self._body, bg=theme.bg)
+        tree_frame = tk.Frame(self._filament_frame, bg=theme.bg)
         tree_frame.pack(fill="both", expand=True)
 
         style = ttk.Style()

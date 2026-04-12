@@ -379,20 +379,6 @@ class App(tk.Tk):
         )
         self._filament_tab.pack(side="left", padx=(0, 10))
 
-        self._convert_tab = make_btn(
-            tab_frame,
-            "  Convert  ",
-            lambda: self._on_convert_tab(),
-            bg=theme.bg4,
-            fg=theme.btn_fg,
-            font=(UI_FONT, 13),
-            padx=14,
-            pady=6,
-            image=_convert_icon,
-            compound="left",
-        )
-        self._convert_tab.pack(side="left", padx=(0, 10))
-
         self._compare_tab = make_btn(
             tab_frame,
             "  Compare Filament  ",
@@ -405,7 +391,21 @@ class App(tk.Tk):
             image=_compare_icon,
             compound="left",
         )
-        self._compare_tab.pack(side="left")
+        self._compare_tab.pack(side="left", padx=(0, 20))
+
+        self._convert_tab = make_btn(
+            tab_frame,
+            "  Convert  ",
+            lambda: self._on_convert_tab(),
+            bg=theme.bg4,
+            fg=theme.btn_fg,
+            font=(UI_FONT, 13),
+            padx=14,
+            pady=6,
+            image=_convert_icon,
+            compound="left",
+        )
+        self._convert_tab.pack(side="left")
 
         # Toolbar buttons on the right
         toolbar = tk.Frame(toolbar_row, bg=theme.bg)
