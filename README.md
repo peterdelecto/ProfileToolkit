@@ -1,134 +1,66 @@
 # Profile Toolkit
 
-A desktop app for managing 3D printer slicer profiles. Import, inspect, edit, compare, convert, and export filament and process profiles across BambuStudio, OrcaSlicer, and PrusaSlicer.
+Desktop app for wrangling 3D printer slicer profiles. Import, edit, compare, convert, and export filament and process profiles for BambuStudio, OrcaSlicer, and PrusaSlicer. Runs locally. No account, no cloud.
 
-Built with Python + tkinter. No internet connection required to use local profiles.
+**[Download for macOS (v0.1)](dist/ProfileToolkitv01.zip)** - unzip, drag to Applications.
+
+*Windows binary coming soon.*
 
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
-![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)
-
----
-
-## Screenshots
-
-**Filament profile browser — filter by printer, brand, material, or status**
-![Filament tab](screenshots/Filament.png)
-
-**Side-by-side comparison with diff filtering and value copy**
-![Compare tab](screenshots/Compare.png)
-
-**Cross-slicer conversion with missing key review**
-![Convert tab](screenshots/Convert.png)
-
-**Smart recommendations — flags values outside typical ranges for a given material**
-![Recommendations](screenshots/Recommendation.png)
-
-**Online profile import — browse and download from Polymaker, Prusa, colorFabb, and more**
-![Online import step 1](screenshots/Import%20from%20Online%201.png)
-![Online import step 2](screenshots/Import%20from%20Online%202.png)
+![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
 
 ---
 
 ## Features
 
-**Familiar layout** — Parameters are displayed using BambuStudio's tab and section structure, so nothing is out of place if you're already used to the slicer.
+Works with BambuStudio, OrcaSlicer, and PrusaSlicer. Auto-detects installed slicers and their preset folders.
 
-**Filament & process profiles** — Each profile type has its own dedicated tab and layout.
-
-**Filter and search** — The profile list supports text search plus dropdown filters by printer, brand, material, or status (Unlocked / Printer-Locked / Universal).
-
-**Edit inline** — Modify values directly with type-aware validation. Full undo support and change history per profile.
-
-**Batch rename** — Find/replace and pattern tokens across multiple profiles at once.
-
-**Compare side-by-side** — Diff two profiles with view modes: all params, diffs only, or missing keys. Copy values between profiles with undo.
-
-**Convert across slicers** — Map parameters between PrusaSlicer and BambuStudio/OrcaSlicer. Review unmapped keys and fill defaults before exporting.
-
-**Smart recommendations** — Flags values outside typical ranges for a given material across 50+ parameters, with suggested corrections.
-
-**Unlock profiles** — Remove printer-compatibility locks so profiles work across any machine.
-
-**Import from anywhere** — Load JSON, INI, and .3MF files. Pull system presets from installed slicers. Browse and download from online sources: Polymaker, colorFabb, Prusa, OrcaSlicer, BambuStudio, and community databases.
-
-**Export everywhere** — Save as JSON or INI. Install directly into a slicer's preset directory. All exports include full resolved parameters.
+- **Unlock profiles** - make any profile usable on any printer
+- **Compare** - two profiles side by side (show everything, changes only, or missing only), per-section counts, copy values between them with undo
+- **Convert** - map profiles between PrusaSlicer and BambuStudio/OrcaSlicer, flags anything that didn't map cleanly
+- **Import** - JSON, INI, `.3mf` (extracts the embedded filament/process profiles), installed-slicer system presets, or straight from online sources
+- **Inline editing** - type-aware, full undo, per-profile change history
+- **Batch rename** - find/replace and pattern tokens across a bunch of profiles at once
+- **Recommendations** - flags values outside typical ranges for the material across 50+ parameters, with sources
+- **Export** - JSON or INI, or drop it directly into a slicer's preset folder
 
 ---
 
-## Quick Start
+## Screenshots
 
-```bash
-python3 ProfileToolkit.py
-```
+### Filament browser & editor
 
-Requires Python 3.10+ with tkinter.
+Every filament profile on your machine in one list. Filter by printer, brand, material, or lock status. Edit any param inline. Locked profiles, mods, and missing values are color-coded. Right pane matches BambuStudio's tab/section layout exactly.
 
-| Platform | Install tkinter |
-|----------|----------------|
-| macOS | `brew install python-tk` |
-| Ubuntu/Debian | `sudo apt install python3-tk` |
-| Windows | Included with the standard Python installer from python.org |
+![Filament tab](screenshots/Filament.jpg)
 
----
+### Side-by-side compare
 
-## Building a Standalone App
+Compare two profiles side by side. Three view modes (everything / changed / missing). The left panel shows a count per section so you know where the differences are. One-click **Copy A -> B** / **Copy B -> A**, undo works.
 
-```bash
-python3 build.py
-```
+![Compare tab](screenshots/Compare.jpg)
 
-Produces a self-contained app for the current platform:
+### Cross-slicer convert
 
-| Platform | Output |
-|----------|--------|
-| macOS | `dist/Profile Toolkit.app` — drag to Applications, or zip to share |
-| Windows | `dist/Profile Toolkit/Profile Toolkit.exe` — zip the folder to share |
-| Linux | `dist/profile-toolkit/profile-toolkit` — tar/zip the folder to share |
+Translate profiles between BambuStudio, OrcaSlicer, and PrusaSlicer. Anything that couldn't be mapped cleanly gets flagged with a warning and a recommended default so you can fix it before export.
 
-PyInstaller is installed automatically if not present.
+![Convert tab](screenshots/Convert.jpg)
 
----
+### Smart recommendations
 
-## Supported Slicers
+Hover a param to see typical ranges for the selected material, what other materials use, and where the numbers came from (Polymaker, Prusa, MatterHackers, etc). Out-of-range values get flagged in the header.
 
-Auto-detects installed slicers and their profile directories:
+![Recommendations](screenshots/Recommendation.jpg)
 
-- **BambuStudio**
-- **OrcaSlicer**
-- **PrusaSlicer**
+### Import from online sources
 
----
+Pull profiles from manufacturer and community repos. No manually hunting down files.
 
-## Project Structure
+**Step 1 - pick a source:** Prusa, Polymaker, colorFabb, BambuStudio Official, SimplyPrint DB, OrcaSlicer built-in, and more.
 
-```
-ProfileToolkit.py              Entry point
-build.py                       PyInstaller build script
-profile_toolkit/
-  app.py                       Main window, menus, tabs
-  models.py                    Profile, ProfileEngine, PresetIndex, SlicerDetector
-  constants.py                 Layout definitions, conversion mappings
-  theme.py                     Dark theme with WCAG AA colors
-  widgets.py                   Tooltip, ScrollableFrame, ExportDialog
-  state.py                     Persistence layer
-  detail_panel.py              Profile editing panel
-  list_panel.py                Profile list with filtering/sorting
-  compare_panel.py             Side-by-side comparison
-  convert_panel.py             Cross-slicer conversion
-  about_dialog.py              About dialog
-  batch_rename_dialog.py       Batch rename with pattern tokens
-  recommendations_dialog.py    Parameter recommendations
-  online_import_wizard.py      Online profile browser
-  prusa_bundle_wizard.py       PrusaSlicer bundle importer
-  providers_pkg/               Online profile source providers
-resources/                     App icons (PNG, ICO, ICNS)
-screenshots/                   UI screenshots
-tests/                         pytest test suites
-```
+![Online import - source picker](screenshots/Import-from-Online-1.jpg)
 
----
+**Step 2 - browse & select:** Filter by material, printer, nozzle size. Multi-select and import.
 
-## License
+![Online import - browse & select](screenshots/Import-from-Online-2.jpg)
 
-MIT
