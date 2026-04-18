@@ -1,0 +1,289 @@
+#!/usr/bin/env python3
+"""Build Script for Profile Toolkit.
+
+Creates a standalone app bundle via PyInstaller for macOS, Windows, or Linux.
+Usage: python3 build.py
+"""
+
+import os
+import platform
+import subprocess
+import sys
+
+APP_NAME = "Profile Toolkit"
+SCRIPT = "ProfileToolkit.py"
+ICON_MAC = "resources/AppIcon.icns"
+ICON_WIN = "resources/AppIcon.ico"
+ICON_LINUX = "resources/AppIcon.png"
+
+
+def run(cmd, check=True):
+    """Run a command and print it."""
+    print(f"  > {' '.join(cmd)}")
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.stdout.strip():
+        print(result.stdout.strip())
+    if result.returncode != 0 and check:
+        print(f"ERROR: {result.stderr.strip()}")
+        sys.exit(1)
+    return result
+
+
+def ensure_pyinstaller():
+    """Install PyInstaller if not available."""
+    try:
+        import PyInstaller
+
+        print(f"  PyInstaller {PyInstaller.__version__} found.")
+    except ImportError:
+        print("  Installing PyInstaller...")
+        run([sys.executable, "-m", "pip", "install", "pyinstaller"])
+        print("  PyInstaller installed.")
+
+
+def build_macos():
+    """Build a macOS .app bundle."""
+    print("\n--- Building macOS .app bundle ---\n")
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "PyInstaller",
+        "--name",
+        APP_NAME,
+        "--windowed",  # .app bundle, no terminal window
+        "--onedir",  # Single directory (faster startup than onefile)
+        "--noconfirm",  # Overwrite previous build
+        "--clean",  # Clean build cache
+        "--strip",  # Strip debug symbols
+    ]
+
+    # Add icon if available
+    if os.path.exists(ICON_MAC):
+        cmd.extend(["--icon", ICON_MAC])
+    else:
+        print(f"  WARNING: Icon file not found: {ICON_MAC}")
+
+    # Bundle PNG icon sets for the UI
+    for size in ("16x16", "24x24"):
+        icon_dir = os.path.join("resources", "icons", size)
+        if os.path.isdir(icon_dir):
+            cmd.extend(["--add-data", f"{icon_dir}{os.pathsep}resources/icons/{size}"])
+
+    # Bundle app icon PNGs for window icon (taskbar / title bar)
+    for icon_png in (
+        "AppIcon-32.png",
+        "AppIcon-64.png",
+        "AppIcon-128.png",
+        "AppIcon.png",
+        "AppIcon-256.png",
+        "AppIcon-512.png",
+    ):
+        icon_path = os.path.join("resources", icon_png)
+        if os.path.exists(icon_path):
+            cmd.extend(["--add-data", f"{icon_path}{os.pathsep}resources"])
+
+    # Bundle harvested profiles (if present)
+    bundle_dir = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "bundled_profiles"
+    )
+    if os.path.isdir(bundle_dir):
+        cmd.extend(["--add-data", f"{bundle_dir}{os.pathsep}bundled_profiles"])
+
+    # macOS-specific: ensure high-DPI support
+    cmd.extend(["--osx-bundle-identifier", "com.profiletoolkit.app"])
+
+    cmd.append(SCRIPT)
+    run(cmd)
+
+    # The .app bundle is in dist/
+    app_path = os.path.join("dist", f"{APP_NAME}.app")
+    if os.path.exists(app_path):
+        print(f"\n  SUCCESS: {app_path}")
+        print(f"  Size: {get_dir_size(app_path):.1f} MB")
+        print(f"\n  To install: drag '{APP_NAME}.app' to your Applications folder.")
+        print(f"  To distribute: zip the .app and share it.")
+    else:
+        print("\n  ERROR: .app bundle not found in dist/")
+
+
+def build_windows():
+    """Build a Windows .exe."""
+    print("\n--- Building Windows .exe ---\n")
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "PyInstaller",
+        "--name",
+        APP_NAME,
+        "--windowed",  # No console window
+        "--onedir",
+        "--noconfirm",
+        "--clean",
+    ]
+
+    if os.path.exists(ICON_WIN):
+        cmd.extend(["--icon", ICON_WIN])
+    else:
+        print(f"  WARNING: Icon file not found: {ICON_WIN}")
+
+    # Bundle PNG icon sets for the UI
+    for size in ("16x16", "24x24"):
+        icon_dir = os.path.join("resources", "icons", size)
+        if os.path.isdir(icon_dir):
+            cmd.extend(["--add-data", f"{icon_dir}{os.pathsep}resources/icons/{size}"])
+
+    # Bundle app icon PNGs for window icon (taskbar / title bar)
+    for icon_png in (
+        "AppIcon-32.png",
+        "AppIcon-64.png",
+        "AppIcon-128.png",
+        "AppIcon.png",
+        "AppIcon-256.png",
+        "AppIcon-512.png",
+    ):
+        icon_path = os.path.join("resources", icon_png)
+        if os.path.exists(icon_path):
+            cmd.extend(["--add-data", f"{icon_path}{os.pathsep}resources"])
+
+    # Bundle harvested profiles (if present)
+    bundle_dir = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "bundled_profiles"
+    )
+    if os.path.isdir(bundle_dir):
+        cmd.extend(["--add-data", f"{bundle_dir}{os.pathsep}bundled_profiles"])
+
+    cmd.append(SCRIPT)
+    run(cmd)
+
+    exe_path = os.path.join("dist", APP_NAME, f"{APP_NAME}.exe")
+    if os.path.exists(exe_path):
+        print(f"\n  SUCCESS: {exe_path}")
+        print(f"  Folder size: {get_dir_size(os.path.join('dist', APP_NAME)):.1f} MB")
+        print(f"\n  To distribute: zip the '{APP_NAME}' folder and share it.")
+    else:
+        print("\n  ERROR: .exe not found in dist/")
+
+
+def build_linux():
+    """Build a Linux binary."""
+    print("\n--- Building Linux binary ---\n")
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "PyInstaller",
+        "--name",
+        APP_NAME.lower().replace(" ", "-"),
+        "--windowed",
+        "--onedir",
+        "--noconfirm",
+        "--clean",
+    ]
+
+    if os.path.exists(ICON_LINUX):
+        cmd.extend(["--icon", ICON_LINUX])
+    else:
+        print(f"  WARNING: Icon file not found: {ICON_LINUX}")
+
+    # Bundle PNG icon sets for the UI
+    for size in ("16x16", "24x24"):
+        icon_dir = os.path.join("resources", "icons", size)
+        if os.path.isdir(icon_dir):
+            cmd.extend(["--add-data", f"{icon_dir}{os.pathsep}resources/icons/{size}"])
+
+    # Bundle app icon PNGs for window icon (taskbar / title bar)
+    for icon_png in (
+        "AppIcon-32.png",
+        "AppIcon-64.png",
+        "AppIcon-128.png",
+        "AppIcon.png",
+        "AppIcon-256.png",
+        "AppIcon-512.png",
+    ):
+        icon_path = os.path.join("resources", icon_png)
+        if os.path.exists(icon_path):
+            cmd.extend(["--add-data", f"{icon_path}{os.pathsep}resources"])
+
+    # Bundle harvested profiles (if present)
+    bundle_dir = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "bundled_profiles"
+    )
+    if os.path.isdir(bundle_dir):
+        cmd.extend(["--add-data", f"{bundle_dir}{os.pathsep}bundled_profiles"])
+
+    cmd.append(SCRIPT)
+    run(cmd)
+
+    binary_name = APP_NAME.lower().replace(" ", "-")
+    binary_path = os.path.join("dist", binary_name, binary_name)
+    if os.path.exists(binary_path):
+        print(f"\n  SUCCESS: {binary_path}")
+        print(
+            f"  Folder size: {get_dir_size(os.path.join('dist', binary_name)):.1f} MB"
+        )
+        print(f"\n  To distribute: tar/zip the '{binary_name}' folder and share it.")
+    else:
+        print("\n  ERROR: binary not found in dist/")
+
+
+def get_dir_size(path):
+    """Get total size of a directory in MB."""
+    total = 0
+    for dirpath, dirnames, filenames in os.walk(path):
+        for f in filenames:
+            fp = os.path.join(dirpath, f)
+            total += os.path.getsize(fp)
+    return total / (1024 * 1024)
+
+
+def main():
+    print(f"{'=' * 50}")
+    print(f"  Building {APP_NAME}")
+    print(f"  Platform: {platform.system()} {platform.machine()}")
+    print(f"  Python: {sys.version.split()[0]}")
+    print(f"{'=' * 50}")
+
+    # Verify source exists
+    if not os.path.exists(SCRIPT):
+        print(f"\nERROR: {SCRIPT} not found. Run this from the project directory.")
+        sys.exit(1)
+
+    # Verify tkinter
+    try:
+        import tkinter
+
+        print(f"  tkinter: OK")
+    except ImportError:
+        print("\nERROR: tkinter not found. Install it:")
+        if platform.system() == "Darwin":
+            print("  brew install python-tk")
+        elif platform.system() == "Linux":
+            print("  sudo apt install python3-tk")
+        else:
+            print("  Reinstall Python with tkinter support from python.org")
+        sys.exit(1)
+
+    # Install PyInstaller
+    ensure_pyinstaller()
+
+    # Build for current platform
+    system = platform.system()
+    if system == "Darwin":
+        build_macos()
+    elif system == "Windows":
+        build_windows()
+    elif system == "Linux":
+        build_linux()
+    else:
+        print(f"\nUnsupported platform: {system}")
+        sys.exit(1)
+
+    print(f"\n{'=' * 50}")
+    print("  Build complete!")
+    print(f"{'=' * 50}\n")
+
+
+if __name__ == "__main__":
+    main()

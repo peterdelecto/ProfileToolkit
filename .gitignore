@@ -1,0 +1,89 @@
+# Build artifacts
+build/
+dist/
+*.app/
+*.spec
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+
+# macOS
+.DS_Store
+
+# IDE / tools
+.vscode/
+.idea/
+.claude/
+
+# Bundled profiles (42MB downloaded data — regenerate with scripts/harvest_profiles.py)
+bundled_profiles/
+
+# Icon source files and intermediates (only ship final PNGs + icns + ico)
+assets/
+resources/AppIcon.ai
+resources/AppIcon.psd
+resources/AppIcon*.svg
+resources/AppIconNew.*
+resources/AppIconFinal.*
+resources/AppIconPurpleGlow.*
+resources/icons.ai
+resources/convert.png
+resources/convert2.png
+resources/convert\ icon.png
+resources/convert\ icon.ai
+resources/filament.png
+resources/filament2.png
+resources/floppy.png
+resources/floppy2.png
+resources/printer.png
+resources/printer2.png
+resources/scale.png
+resources/scale\ 2.png
+resources/AppIcon_1024.png
+resources/AppIcon_preview.png
+resources/appicon_preview_sizes.png
+resources/ICON_POLISH_BRIEFING.md
+resources/generate_icon.sh
+resources/icons/
+
+# macOS launcher
+run.command
+ProfileToolkit.command
+
+# Large icon intermediates (keep final sized PNGs, not base/1024)
+resources/AppIcon.png
+resources/AppIcon-1024.png
+
+# Example / test profile data
+example_profiles/
+
+# Working docs / notes (not part of the app)
+docs/
+prompts/
+CLAUDE.md
+CLAUDE.local.md
+AUDIT_REPORT.md
+carryforward.md
+compare_debug.log
+convert-tab-mockup-a.html
+convert-tab-mockups.jsx
+CARRY_FORWARD.md
+CODE_AUDIT.md
+CODE_AUDIT*.md
+BUG_SWEEP.md
+ComparePanel_Audit_Report.md
+PRE_RELEASE_QA_CHECKLIST.md
+RECOMMENDATIONS_AUDIT.md
+V1_QA_Audit_Report.md
+prompt_*.md
+ux_*.md
+theme_mockups.html
+global-settings-merged.json
+
+# Lock files and utility scripts
+uv.lock
+scripts/
