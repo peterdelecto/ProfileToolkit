@@ -375,7 +375,7 @@ class ProfileDetailPanel(tk.Frame):
         self._name_label.bind("<Double-1>", lambda e: self._start_header_rename())
         _Tooltip(self._name_label, "Double-click to rename", theme=theme)
 
-        # Row 2: status + inheritance + source -- one line, plain text
+        # Row 2: status (left) + Change History (right)
         row2 = tk.Frame(header_frame, bg=theme.bg2)
         row2.pack(fill="x", pady=(2, 0))
 
@@ -415,35 +415,33 @@ class ProfileDetailPanel(tk.Frame):
             font=(UI_FONT, 13, "bold"),
         ).pack(side="left")
 
-        # Separator dot + inheritance + source
-        info_parts = []
-        if profile.inherits:
-            inherit_str = f"inherits from {profile.inherits}"
-            if not profile.resolved_data:
-                inherit_str += " (not found)"
-            info_parts.append(inherit_str)
-        info_parts.append(profile.source_label)
-        if info_parts:
-            tk.Label(
-                row2,
-                text="  \u00b7  " + "  \u00b7  ".join(info_parts),
-                bg=theme.bg2,
-                fg=theme.fg2,
-                font=(UI_FONT, 13),
-            ).pack(side="left")
-
-        # Undo / Changelog link -- always visible so users discover the feature
+        # Change History -- right-justified so it never occludes status
         hist_count = len(profile.changelog) if profile.changelog else 0
         hist_lbl = tk.Label(
             row2,
-            text=f"  \u00b7  Change History ({hist_count})",
+            text=f"Change History ({hist_count})",
             bg=theme.bg2,
             fg=theme.inherited,
             font=(UI_FONT, 13, "underline"),
             cursor="pointinghand",
         )
-        hist_lbl.pack(side="left")
+        hist_lbl.pack(side="right", padx=(0, 4))
         hist_lbl.bind("<Button-1>", lambda e, p=profile: self._show_changelog(p))
+
+        # Row 2b: Inherits from -- own line so it never occludes row2
+        if profile.inherits:
+            inherit_str = f"Inherits from: {profile.inherits}"
+            if not profile.resolved_data:
+                inherit_str += " (not found)"
+            row2b = tk.Frame(header_frame, bg=theme.bg2)
+            row2b.pack(fill="x")
+            tk.Label(
+                row2b,
+                text=inherit_str,
+                bg=theme.bg2,
+                fg=theme.fg2,
+                font=(UI_FONT, 12),
+            ).pack(side="left")
 
         # Material badge + inherited count for legend
         inherited_count = len(self._inherited_keys)

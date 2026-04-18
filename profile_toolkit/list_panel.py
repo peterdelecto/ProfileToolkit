@@ -206,38 +206,46 @@ class ProfileListPanel(tk.Frame):
         self._placeholder = True
 
         # --- Filter-by column dropdown ---
-        filter_options = {
-            "All columns": "none",
-            "Printer": "printer",
-            "Brand": "brand",
-            "Material": "material",
-            "Status": "status",
-        }
-        self._filter_labels = list(filter_options.keys())
-        self._filter_values = list(filter_options.values())
-        self._filter_col_var = tk.StringVar(value=self._filter_labels[0])
-        self._filter_by = "none"
+        # _filter_col_var holds the active category ("" = no filter)
+        # _filter_val_var holds the selected value within that category
+        self._filter_col_var = tk.StringVar(value="")
+        self._filter_val_var = tk.StringVar(value="")
+        self._filter_by = ""      # category key
+        self._filter_val = ""     # value to match
 
         filter_dd_frame = tk.Frame(parent, bg=theme.bg2)
         filter_dd_frame.pack(fill="x", padx=6, pady=(0, 4))
         tk.Label(
             filter_dd_frame,
-            text="Filter:",
+            text="Filter by:",
             bg=theme.bg2,
             fg=theme.fg3,
             font=(UI_FONT, 13),
         ).pack(side="left", padx=(2, 6))
-        filter_cb = ttk.Combobox(
+
+        self._filter_cat_cb = ttk.Combobox(
             filter_dd_frame,
             textvariable=self._filter_col_var,
-            values=self._filter_labels,
+            values=["", "Printer", "Brand", "Material", "Status"],
             state="readonly",
             style="Param.TCombobox",
             font=(UI_FONT, 13),
-            width=16,
+            width=12,
         )
-        filter_cb.pack(side="left")
-        filter_cb.bind("<<ComboboxSelected>>", self._on_filter_change)
+        self._filter_cat_cb.pack(side="left", padx=(0, 6))
+        self._filter_cat_cb.bind("<<ComboboxSelected>>", self._on_filter_cat_change)
+
+        self._filter_val_cb = ttk.Combobox(
+            filter_dd_frame,
+            textvariable=self._filter_val_var,
+            values=[],
+            state="readonly",
+            style="Param.TCombobox",
+            font=(UI_FONT, 13),
+            width=18,
+        )
+        self._filter_val_cb.pack(side="left")
+        self._filter_val_cb.bind("<<ComboboxSelected>>", self._on_filter_val_change)
 
     def _filter_in(self, event: tk.Event) -> None:
         if self._placeholder:
@@ -255,12 +263,30 @@ class ProfileListPanel(tk.Frame):
                 fg=self.theme.placeholder_fg, font=(UI_FONT, 13, "italic")
             )
 
-    def _on_filter_change(self, event: Optional[tk.Event] = None) -> None:
-        try:
-            idx = self._filter_labels.index(self._filter_col_var.get())
-        except ValueError:
-            idx = 0  # Fall back to "All columns"
-        self._filter_by = self._filter_values[idx]
+    def _on_filter_cat_change(self, event: Optional[tk.Event] = None) -> None:
+        cat = self._filter_col_var.get()
+        self._filter_by = cat.lower() if cat else ""
+        self._filter_val = ""
+        self._filter_val_var.set("")
+
+        # Populate value dropdown from current profiles
+        values: list[str] = []
+        if self._filter_by == "printer":
+            values = sorted({p.printer_group or "" for p in self.profiles if p.printer_group})
+        elif self._filter_by == "brand":
+            values = sorted({p.brand_group or "" for p in self.profiles if p.brand_group})
+        elif self._filter_by == "material":
+            values = sorted({p.material_group or "" for p in self.profiles if p.material_group})
+        elif self._filter_by == "status":
+            values = sorted({self._profile_status(p)[0] for p in self.profiles})
+
+        self._filter_val_cb["values"] = [""] + values
+        if self._filter_after_id:
+            self.after_cancel(self._filter_after_id)
+        self._filter_after_id = self.after(150, self._refresh_list)
+
+    def _on_filter_val_change(self, event: Optional[tk.Event] = None) -> None:
+        self._filter_val = self._filter_val_var.get()
         if self._filter_after_id:
             self.after_cancel(self._filter_after_id)
         self._filter_after_id = self.after(150, self._refresh_list)
@@ -422,7 +448,7 @@ class ProfileListPanel(tk.Frame):
     @staticmethod
     def _profile_status(p: Profile) -> tuple:
         if p.modified:
-            return ("Modified", "status_converted")
+            return ("Unlocked", "status_converted")
         elif p.is_locked:
             return ("Printer-Locked", "status_locked")
         else:
@@ -535,31 +561,39 @@ class ProfileListPanel(tk.Frame):
         prev_selection = set(self.tree.selection())
 
         self.tree.delete(*self.tree.get_children())
-        filter_text = "" if self._placeholder else self._filter_var.get().lower()
+        search_text = "" if self._placeholder else self._filter_var.get().lower()
+        filter_cat = self._filter_by    # e.g. "printer", "material", "" = none
+        filter_val = self._filter_val   # exact value selected in value dropdown
 
         visible = []
-        filter_col = self._filter_by
         for i, profile in enumerate(self.profiles):
-            if filter_text:
+            # Category+value dropdown filter (exact match)
+            if filter_cat and filter_val:
                 status_text, _ = self._profile_status(profile)
-                if filter_col == "none":
-                    searchable = (
-                        f"{profile.name} {profile.origin} {profile.source_label} "
-                        f"{status_text} {profile.material_group} "
-                        f"{profile.printer_group} {profile.brand_group}"
-                    ).lower()
-                elif filter_col == "printer":
-                    searchable = (profile.printer_group or "").lower()
-                elif filter_col == "brand":
-                    searchable = (profile.brand_group or "").lower()
-                elif filter_col == "material":
-                    searchable = (profile.material_group or "").lower()
-                elif filter_col == "status":
-                    searchable = status_text.lower()
+                if filter_cat == "printer":
+                    match = (profile.printer_group or "") == filter_val
+                elif filter_cat == "brand":
+                    match = (profile.brand_group or "") == filter_val
+                elif filter_cat == "material":
+                    match = (profile.material_group or "") == filter_val
+                elif filter_cat == "status":
+                    match = status_text == filter_val
                 else:
-                    searchable = profile.name.lower()
-                if filter_text not in searchable:
+                    match = True
+                if not match:
                     continue
+
+            # Search box text filter (substring, across all columns)
+            if search_text:
+                status_text, _ = self._profile_status(profile)
+                searchable = (
+                    f"{profile.name} {profile.origin} {profile.source_label} "
+                    f"{status_text} {profile.material_group} "
+                    f"{profile.printer_group} {profile.brand_group}"
+                ).lower()
+                if search_text not in searchable:
+                    continue
+
             visible.append((i, profile))
 
         if self._sort_col:
